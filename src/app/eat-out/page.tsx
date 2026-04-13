@@ -55,6 +55,9 @@ import type { Restaurant } from '@/types/restaurant';
 type SortBy = 'distance' | 'rating';
 const LOCATION_MAX_AGE_MS = 30 * 60 * 1000;
 const PERSISTENT_MAP_HEIGHT = 196;
+const MAX_BUDGET_LEVEL = 4;
+const MIN_PARTY_SIZE = 1;
+const MAX_PARTY_SIZE = 12;
 
 export default function EatOutPage() {
   return (
@@ -78,7 +81,12 @@ function EatOutContent() {
   const locale = usePreferences((s) => s.locale);
   const searchRadiusKm = usePreferences((s) => s.searchRadiusKm);
   const setSearchRadius = usePreferences((s) => s.setSearchRadius);
-  const prefMinRating = usePreferences((s) => s.minRating);
+  const minRating = usePreferences((s) => s.minRating);
+  const setMinRating = usePreferences((s) => s.setMinRating);
+  const maxBudgetLevel = usePreferences((s) => s.maxBudgetLevel);
+  const setMaxBudgetLevel = usePreferences((s) => s.setMaxBudgetLevel);
+  const partySize = usePreferences((s) => s.partySize);
+  const setPartySize = usePreferences((s) => s.setPartySize);
   const theme = useMantineTheme();
 
   const {
@@ -104,9 +112,8 @@ function EatOutContent() {
     visitedRecordsRef.current = visitedRecords;
   }, [visitedRecords]);
 
-  // Filters — minRating defaults to the persisted preference
+  // Filters
   const [openOnly, setOpenOnly] = useState(true);
-  const [minRating, setMinRating] = useState(prefMinRating);
   const [sortBy, setSortBy] = useState<SortBy>('distance');
   const [filtersOpened, { toggle: toggleFilters }] = useDisclosure(false);
   const mapWrapperRef = useRef<HTMLDivElement | null>(null);
@@ -131,13 +138,27 @@ function EatOutContent() {
       list = list.filter((r) => r.rating === undefined || r.rating >= minRating);
     }
 
+    if (maxBudgetLevel > 0) {
+      list = list.filter(
+        (restaurant) =>
+          restaurant.priceLevel === undefined ||
+          (restaurant.priceLevel > 0 && restaurant.priceLevel <= maxBudgetLevel),
+      );
+    }
+
+    if (partySize > 1) {
+      list = list.filter(
+        (restaurant) => restaurant.capacity === undefined || restaurant.capacity >= partySize,
+      );
+    }
+
     if (sortBy === 'rating') {
       list = [...list].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
     }
     // 'distance' is the default sort from the API, no re-sort needed
 
     return list;
-  }, [allRestaurants, minRating, sortBy]);
+  }, [allRestaurants, minRating, maxBudgetLevel, partySize, sortBy]);
 
   const displayRestaurants = useMemo(() => {
     if (!isRandomMode || !pickedRestaurant) {
@@ -381,6 +402,7 @@ function EatOutContent() {
 
   const l = useLabels(locale);
   const hasResults = !loading && !error && restaurants.length > 0;
+  const hasActiveClientFilters = minRating > 0 || maxBudgetLevel > 0 || partySize > 1;
   const activeRestaurant =
     displayRestaurants.find((restaurant) => restaurant.id === activeRestaurantId) ??
     pickedRestaurant;
@@ -442,6 +464,22 @@ function EatOutContent() {
                   </Text>
                   <Text size="sm" fw={600}>
                     {minRating > 0 ? `${minRating}+` : l.any}
+                  </Text>
+                </Box>
+                <Box className="app-stat-pill">
+                  <Text size="xs" c="dimmed">
+                    {l.budget}
+                  </Text>
+                  <Text size="sm" fw={600}>
+                    {formatBudgetLevel(maxBudgetLevel, l)}
+                  </Text>
+                </Box>
+                <Box className="app-stat-pill">
+                  <Text size="xs" c="dimmed">
+                    {l.partySize}
+                  </Text>
+                  <Text size="sm" fw={600}>
+                    {l.partySizeValue(partySize)}
                   </Text>
                 </Box>
                 <Box className="app-stat-pill">
@@ -521,6 +559,72 @@ function EatOutContent() {
                           { value: 3, label: '3' },
                           { value: 4, label: '4' },
                           { value: 4.5, label: '4.5' },
+                        ]}
+                      />
+                    </Stack>
+                  </Box>
+
+                  <Box className="app-panel-muted" p="sm">
+                    <Stack gap="sm">
+                      <Group justify="space-between" align="center" gap="sm">
+                        <Text size="sm" fw={600}>
+                          {l.budget}
+                        </Text>
+                        <Badge variant="light" color="green" radius="xl">
+                          {formatBudgetLevel(maxBudgetLevel, l)}
+                        </Badge>
+                      </Group>
+                      <Slider
+                        value={maxBudgetLevel}
+                        onChange={setMaxBudgetLevel}
+                        label={(value) => formatBudgetLevel(value, l)}
+                        min={0}
+                        max={MAX_BUDGET_LEVEL}
+                        step={1}
+                        color="green"
+                      />
+                      <SliderScaleLabels
+                        min={0}
+                        max={MAX_BUDGET_LEVEL}
+                        marks={[
+                          { value: 0, label: l.any },
+                          { value: 1, label: '¥' },
+                          { value: 2, label: '¥¥' },
+                          { value: 3, label: '¥¥¥' },
+                          { value: 4, label: '¥¥¥¥' },
+                        ]}
+                      />
+                    </Stack>
+                  </Box>
+
+                  <Box className="app-panel-muted" p="sm">
+                    <Stack gap="sm">
+                      <Group justify="space-between" align="center" gap="sm">
+                        <Text size="sm" fw={600}>
+                          {l.partySize}
+                        </Text>
+                        <Badge variant="light" color="grape" radius="xl">
+                          {l.partySizeValue(partySize)}
+                        </Badge>
+                      </Group>
+                      <Slider
+                        value={partySize}
+                        onChange={setPartySize}
+                        label={(value) => l.partySizeValue(value)}
+                        min={MIN_PARTY_SIZE}
+                        max={MAX_PARTY_SIZE}
+                        step={1}
+                        color="grape"
+                      />
+                      <SliderScaleLabels
+                        min={MIN_PARTY_SIZE}
+                        max={MAX_PARTY_SIZE}
+                        marks={[
+                          { value: 1, label: '1' },
+                          { value: 2, label: '2' },
+                          { value: 4, label: '4' },
+                          { value: 8, label: '8' },
+                          { value: 12, label: '12' },
                         ]}
                       />
                     </Stack>
@@ -722,6 +826,11 @@ function EatOutContent() {
                       {pickedRestaurant.budgetText && (
                         <Badge variant="outline" size="sm" color="orange">
                           {pickedRestaurant.budgetText}
+                        </Badge>
+                      )}
+                      {pickedRestaurant.capacity && (
+                        <Badge variant="outline" size="sm" color="grape">
+                          {l.capacityValue(pickedRestaurant.capacity)}
                         </Badge>
                       )}
                       {pickedRestaurant.isOpenNow !== undefined && (
@@ -1010,7 +1119,9 @@ function EatOutContent() {
               <Center py="sm">
                 <Box className="app-panel-muted" p="lg">
                   <Text c="dimmed">
-                    {allRestaurants.length > 0 && minRating > 0 ? l.noMatchFilters : l.noResults}
+                    {allRestaurants.length > 0 && hasActiveClientFilters
+                      ? l.noMatchFilters
+                      : l.noResults}
                   </Text>
                 </Box>
               </Center>
@@ -1060,6 +1171,8 @@ function useLabels(locale: Locale) {
       allHours: locale === 'zh-CN' ? '全时段' : locale === 'ja' ? '全時間帯' : 'All hours',
       distance: locale === 'zh-CN' ? '搜索距离' : locale === 'ja' ? '検索距離' : 'Search Distance',
       minRating: locale === 'zh-CN' ? '最低评分' : locale === 'ja' ? '最低評価' : 'Min Rating',
+      budget: locale === 'zh-CN' ? '预算' : locale === 'ja' ? '予算' : 'Budget',
+      partySize: locale === 'zh-CN' ? '人数' : locale === 'ja' ? '人数' : 'Party size',
       any: locale === 'zh-CN' ? '不限' : locale === 'ja' ? '指定なし' : 'Any',
       sortBy: locale === 'zh-CN' ? '排序方式' : locale === 'ja' ? '並び替え' : 'Sort by',
       sortDistance: locale === 'zh-CN' ? '距离优先' : locale === 'ja' ? '距離順' : 'Distance',
@@ -1092,10 +1205,10 @@ function useLabels(locale: Locale) {
             : 'No restaurants found nearby',
       noMatchFilters:
         locale === 'zh-CN'
-          ? '没有符合筛选条件的餐厅，试试降低评分要求'
+          ? '没有符合筛选条件的餐厅，试试放宽筛选条件'
           : locale === 'ja'
-            ? '条件に合うお店がありません。評価を下げてみてください'
-            : 'No restaurants match your filters. Try lowering the minimum rating.',
+            ? '条件に合うお店がありません。条件を少し緩めてみてください'
+            : 'No restaurants match your filters. Try relaxing one or more filters.',
       todaysPick:
         locale === 'zh-CN'
           ? '🎲 今天就吃这家'
@@ -1114,6 +1227,18 @@ function useLabels(locale: Locale) {
       course: locale === 'zh-CN' ? '套餐' : locale === 'ja' ? 'コース' : 'Course',
       drinks: locale === 'zh-CN' ? '酒水' : locale === 'ja' ? 'ドリンク' : 'Drinks',
       website: locale === 'zh-CN' ? '官网' : locale === 'ja' ? '公式サイト' : 'Website',
+      partySizeValue: (count: number) =>
+        locale === 'zh-CN'
+          ? `${count}人`
+          : locale === 'ja'
+            ? `${count}名`
+            : `${count} ${count === 1 ? 'person' : 'people'}`,
+      capacityValue: (count: number) =>
+        locale === 'zh-CN'
+          ? `👥 ${count}人`
+          : locale === 'ja'
+            ? `👥 ${count}名`
+            : `👥 ${count} seats`,
       filterTitle:
         locale === 'zh-CN'
           ? '筛选及排序'
@@ -1137,6 +1262,10 @@ function useLabels(locale: Locale) {
     }),
     [locale],
   );
+}
+
+function formatBudgetLevel(level: number, labels: ReturnType<typeof useLabels>): string {
+  return level > 0 ? '¥'.repeat(level) : labels.any;
 }
 
 function getSourceBadgeColor(source: NonNullable<Restaurant['source']>) {

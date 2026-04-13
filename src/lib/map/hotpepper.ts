@@ -173,6 +173,7 @@ export async function searchHotpepperNearby(
       couponUrl: couponUrl || undefined,
       accessInfo: shop.access || shop.mobile_access || undefined,
       budgetText: shop.budget?.average || shop.budget?.name || undefined,
+      capacity: shop.capacity > 0 ? shop.capacity : undefined,
       features: extractFeatures(shop),
       menuUrl: shop.urls?.pc ? `${shop.urls.pc.replace(/\/$/, '')}/food/` : undefined,
       source: 'hotpepper',

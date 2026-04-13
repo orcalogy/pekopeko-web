@@ -31,6 +31,8 @@ export interface Restaurant {
   accessInfo?: string;
   /** Human-readable budget text (e.g. "3000～4000円") */
   budgetText?: string;
+  /** Approximate supported seats / capacity when available from the provider */
+  capacity?: number;
   /** Feature codes: "wifi", "lunch", "private_room", "english", "non_smoking", "card", "parking" */
   features?: string[];
   /** Best link to view food menu (HotPepper /food/ page or restaurant website) */

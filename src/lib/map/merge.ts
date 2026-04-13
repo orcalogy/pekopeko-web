@@ -27,6 +27,7 @@ export function mergeResults(google: Restaurant[], hotpepper: Restaurant[]): Res
         detailUrl: hpMatch.detailUrl,
         accessInfo: hpMatch.accessInfo,
         budgetText: hpMatch.budgetText,
+        capacity: hpMatch.capacity,
         features: hpMatch.features,
         // Prefer Google's data, fall back to HotPepper
         photoUrl: g.photoUrl || hpMatch.photoUrl,

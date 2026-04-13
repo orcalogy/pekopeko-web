@@ -134,6 +134,12 @@ const websiteLabels: Record<Locale, string> = {
   en: 'Website',
 };
 
+const capacityLabels: Record<Locale, (count: number) => string> = {
+  'zh-CN': (count) => `👥 ${count}人`,
+  ja: (count) => `👥 ${count}名`,
+  en: (count) => `👥 ${count} seats`,
+};
+
 function getNavigateUrl(r: Restaurant): string {
   if (r.placeUrl) return r.placeUrl;
   return `https://www.google.com/maps/dir/?api=1&destination=${r.lat},${r.lng}`;
@@ -268,6 +274,11 @@ export function RestaurantCard({
             {restaurant.budgetText && (
               <Badge variant="outline" size="sm" color="orange">
                 {restaurant.budgetText}
+              </Badge>
+            )}
+            {restaurant.capacity && (
+              <Badge variant="outline" size="sm" color="grape">
+                {capacityLabels[locale](restaurant.capacity)}
               </Badge>
             )}
             {isVisited && (
