@@ -6,15 +6,21 @@ import {
   Card,
   Container,
   Group,
+  Progress,
   SegmentedControl,
   Slider,
   Stack,
+  Switch,
   Text,
   Title,
   useMantineColorScheme,
 } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
+import { useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import type { AppLocale } from '@/lib/app-locale';
+import { isLlmFeatureAvailable } from '@/lib/llm/availability';
+import { clearLlmModelCache } from '@/lib/llm/engine';
 import {
   formatSearchRadius,
   formatSearchRadiusMark,
@@ -25,6 +31,7 @@ import {
   SEARCH_RADIUS_MARK_PRESETS_KM,
 } from '@/lib/search-radius';
 import { useAppState } from '@/stores/app-state';
+import { useLlmStore } from '@/stores/llm';
 import { usePreferences } from '@/stores/preferences';
 import { useVisited } from '@/stores/visited';
 
@@ -35,11 +42,14 @@ export default function SettingsPage() {
     maxSpicy,
     searchRadiusKm,
     minRating,
+    llmEnabled,
+    llmModel,
     setLocale,
     setTheme,
     setMaxSpicy,
     setSearchRadius,
     setMinRating,
+    setLlmEnabled,
   } = usePreferences();
 
   const { history, clearHistory } = useAppState();
@@ -49,6 +59,15 @@ export default function SettingsPage() {
     clearAll: clearVisited,
   } = useVisited();
   const { setColorScheme } = useMantineColorScheme();
+  const llmAvailability = useLlmStore((state) => state.availability);
+  const llmRuntimeState = useLlmStore((state) => state.runtimeState);
+  const llmSupportMessage = useLlmStore((state) => state.supportMessage);
+  const llmRuntimeMessage = useLlmStore((state) => state.runtimeMessage);
+  const llmProgress = useLlmStore((state) => state.progress);
+  const llmIsModelCached = useLlmStore((state) => state.isModelCached);
+  const llmLastError = useLlmStore((state) => state.lastError);
+  const llmSessionDisabled = useLlmStore((state) => state.sessionDisabled);
+  const [clearingCache, setClearingCache] = useState(false);
 
   const handleThemeChange = (value: string) => {
     const t = value as 'light' | 'dark' | 'auto';
@@ -72,6 +91,54 @@ export default function SettingsPage() {
     searchDist: { 'zh-CN': '搜索距离', ja: '検索距離', en: 'Search Distance' },
     minRating: { 'zh-CN': '最低评分', ja: '最低評価', en: 'Min Rating' },
     minRatingAny: { 'zh-CN': '不限', ja: '指定なし', en: 'Any' },
+    aiSearch: { 'zh-CN': 'AI 搜索', ja: 'AI 検索', en: 'AI Search' },
+    aiSearchDesc: {
+      'zh-CN': '默认关闭。开启后会为自然语言搜索预留能力，关闭时保持纯关键词搜索。',
+      ja: '初期状態はオフ。オンにすると自然文検索の準備が有効になり、オフではキーワード検索のみを使います。',
+      en: 'Default off. Turning it on prepares natural-language search, while off keeps search in keyword-only mode.',
+    },
+    aiOn: { 'zh-CN': '已开启', ja: 'オン', en: 'On' },
+    aiOff: { 'zh-CN': '已关闭', ja: 'オフ', en: 'Off' },
+    aiModel: { 'zh-CN': '预设模型', ja: '既定モデル', en: 'Default model' },
+    aiStatus: { 'zh-CN': '支持状态', ja: '対応状況', en: 'Support status' },
+    aiRuntime: { 'zh-CN': '运行状态', ja: '実行状態', en: 'Runtime status' },
+    aiCache: { 'zh-CN': '本地缓存', ja: 'ローカルキャッシュ', en: 'Local cache' },
+    aiCacheUnknown: {
+      'zh-CN': '开启后会检查模型缓存状态',
+      ja: '有効化するとモデルのキャッシュ状態を確認します',
+      en: 'Cache status will be checked once AI search is enabled',
+    },
+    aiCachePresent: { 'zh-CN': '模型已缓存', ja: 'モデルはキャッシュ済み', en: 'Model is cached' },
+    aiCacheMissing: {
+      'zh-CN': '模型未缓存',
+      ja: 'モデルは未キャッシュ',
+      en: 'Model is not cached',
+    },
+    aiClearCache: {
+      'zh-CN': '清除模型缓存',
+      ja: 'モデルキャッシュを削除',
+      en: 'Clear model cache',
+    },
+    aiClearSuccess: {
+      'zh-CN': '已清除模型缓存',
+      ja: 'モデルキャッシュを削除しました',
+      en: 'Model cache cleared',
+    },
+    aiClearError: {
+      'zh-CN': '清除模型缓存失败',
+      ja: 'モデルキャッシュの削除に失敗しました',
+      en: 'Failed to clear model cache',
+    },
+    aiSessionFallback: {
+      'zh-CN': '本次会话已退回到关键词搜索',
+      ja: 'このセッションではキーワード検索にフォールバックしています',
+      en: 'This session has fallen back to keyword-only search',
+    },
+    aiNote: {
+      'zh-CN': '默认关闭。开启后会按需加载本地模型做语义解析；关闭或失败时都会退回到关键词搜索。',
+      ja: '初期状態はオフです。有効化すると必要な時だけローカルモデルを読み込み、失敗時は常にキーワード検索へ戻ります。',
+      en: 'Default off. When enabled, the local model loads on demand for semantic parsing, and every failure falls back to keyword search.',
+    },
     history: { 'zh-CN': '历史记录', ja: '履歴', en: 'History' },
     clearHist: { 'zh-CN': '清除历史', ja: '履歴クリア', en: 'Clear History' },
     records: { 'zh-CN': '条记录', ja: '件の記録', en: 'records' },
@@ -85,12 +152,92 @@ export default function SettingsPage() {
   const l = (key: keyof typeof labels) => labels[key][locale];
   const effectiveSearchRadiusKm = normalizeSearchRadiusKm(searchRadiusKm);
   const searchRadiusIndex = getSearchRadiusPresetIndex(effectiveSearchRadiusKm);
+  const llmFeatureAvailable = isLlmFeatureAvailable();
+  const aiStatusLabel =
+    llmAvailability === 'supported'
+      ? locale === 'zh-CN'
+        ? '可用'
+        : locale === 'ja'
+          ? '利用可能'
+          : 'Supported'
+      : llmAvailability === 'idle'
+        ? locale === 'zh-CN'
+          ? '待检查'
+          : locale === 'ja'
+            ? '未確認'
+            : 'Pending'
+        : llmAvailability === 'checking-support'
+          ? locale === 'zh-CN'
+            ? '检查中'
+            : locale === 'ja'
+              ? '確認中'
+              : 'Checking'
+          : llmAvailability === 'flag-disabled'
+            ? locale === 'zh-CN'
+              ? '已关闭'
+              : locale === 'ja'
+                ? '無効'
+                : 'Disabled'
+            : locale === 'zh-CN'
+              ? '不可用'
+              : locale === 'ja'
+                ? '利用不可'
+                : 'Unsupported';
+  const aiRuntimeLabel =
+    llmRuntimeState === 'loading-model'
+      ? locale === 'zh-CN'
+        ? '加载模型中'
+        : locale === 'ja'
+          ? 'モデルを読み込み中'
+          : 'Loading model'
+      : llmRuntimeState === 'parsing'
+        ? locale === 'zh-CN'
+          ? '解析中'
+          : locale === 'ja'
+            ? '解析中'
+            : 'Parsing'
+        : llmRuntimeState === 'ready'
+          ? locale === 'zh-CN'
+            ? '已就绪'
+            : locale === 'ja'
+              ? '準備完了'
+              : 'Ready'
+          : llmRuntimeState === 'error'
+            ? locale === 'zh-CN'
+              ? '已回退'
+              : locale === 'ja'
+                ? 'フォールバック中'
+                : 'Fallback'
+            : locale === 'zh-CN'
+              ? '未启动'
+              : locale === 'ja'
+                ? '未起動'
+                : 'Idle';
 
   const spicyLabels: Record<number, string> = {
     0: locale === 'zh-CN' ? '不吃辣' : locale === 'ja' ? '辛くない' : 'None',
     1: locale === 'zh-CN' ? '微辣' : locale === 'ja' ? 'ちょい辛' : 'Mild',
     2: locale === 'zh-CN' ? '中辣' : locale === 'ja' ? '中辛' : 'Medium',
     3: locale === 'zh-CN' ? '特辣' : locale === 'ja' ? '激辛' : 'Hot',
+  };
+
+  const handleClearCache = async () => {
+    setClearingCache(true);
+
+    try {
+      await clearLlmModelCache(llmModel);
+      notifications.show({
+        color: 'green',
+        message: l('aiClearSuccess'),
+      });
+    } catch (error) {
+      notifications.show({
+        color: 'red',
+        message: `${l('aiClearError')}: ${error instanceof Error ? error.message : ''}`.trim(),
+      });
+    } finally {
+      setClearingCache(false);
+    }
   };
 
   return (
@@ -221,6 +368,83 @@ export default function SettingsPage() {
               />
             </Stack>
           </Card>
+
+          {llmFeatureAvailable && (
+            <Card padding="md" radius="md" withBorder>
+              <Stack gap="sm">
+                <Group justify="space-between" align="flex-start" gap="sm" wrap="nowrap">
+                  <Box style={{ flex: 1, minWidth: 0 }}>
+                    <Text fw={600}>{l('aiSearch')}</Text>
+                    <Text size="sm" c="dimmed" mt={4}>
+                      {l('aiSearchDesc')}
+                    </Text>
+                  </Box>
+                  <Switch
+                    checked={llmEnabled}
+                    onChange={(event) => setLlmEnabled(event.currentTarget.checked)}
+                    color="orange"
+                  />
+                </Group>
+
+                <Text size="sm" c="dimmed">
+                  {l('aiSearch')}: {llmEnabled ? l('aiOn') : l('aiOff')}
+                </Text>
+                <Text size="sm" c="dimmed">
+                  {l('aiModel')}: {llmModel}
+                </Text>
+                <Text size="sm" c="dimmed">
+                  {l('aiStatus')}: {aiStatusLabel}
+                </Text>
+                <Text size="sm" c="dimmed">
+                  {l('aiRuntime')}: {aiRuntimeLabel}
+                </Text>
+                <Text size="sm" c="dimmed">
+                  {l('aiCache')}:{' '}
+                  {llmIsModelCached == null
+                    ? l('aiCacheUnknown')
+                    : llmIsModelCached
+                      ? l('aiCachePresent')
+                      : l('aiCacheMissing')}
+                </Text>
+                {llmProgress != null && llmRuntimeState === 'loading-model' && (
+                  <Progress value={llmProgress} color="orange" radius="xl" />
+                )}
+                {llmSupportMessage && (
+                  <Text size="xs" c="dimmed">
+                    {llmSupportMessage}
+                  </Text>
+                )}
+                {llmRuntimeMessage && (
+                  <Text size="xs" c="dimmed">
+                    {llmRuntimeMessage}
+                  </Text>
+                )}
+                {llmSessionDisabled && (
+                  <Text size="xs" c="yellow.8">
+                    {l('aiSessionFallback')}
+                  </Text>
+                )}
+                {llmLastError && (
+                  <Text size="xs" c="red">
+                    {llmLastError}
+                  </Text>
+                )}
+                <Button
+                  variant="light"
+                  color="red"
+                  size="xs"
+                  onClick={handleClearCache}
+                  loading={clearingCache}
+                  disabled={llmAvailability !== 'supported'}
+                >
+                  {l('aiClearCache')}
+                </Button>
+                <Text size="xs" c="dimmed">
+                  {l('aiNote')}
+                </Text>
+              </Stack>
+            </Card>
+          )}
 
           {/* History */}
           <Card padding="md" radius="md" withBorder>

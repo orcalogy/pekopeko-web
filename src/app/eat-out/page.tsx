@@ -37,6 +37,7 @@ const RestaurantMap = dynamic(() => import('../../components/restaurant/Restaura
 });
 
 import { categories } from '@/data/categories';
+import { combineKeywordTerms, normalizeSearchQuery } from '@/lib/llm/keyword-fallback';
 import {
   formatSearchRadius,
   formatSearchRadiusMark,
@@ -78,6 +79,8 @@ function EatOutContent() {
   const searchParams = useSearchParams();
   const categoryId = searchParams.get('category');
   const isRandomMode = searchParams.get('random') === 'true';
+  const keyword = normalizeSearchQuery(searchParams.get('keyword'));
+  const openNowFromQuery = searchParams.get('openNow') === 'true';
   const locale = usePreferences((s) => s.locale);
   const searchRadiusKm = usePreferences((s) => s.searchRadiusKm);
   const setSearchRadius = usePreferences((s) => s.setSearchRadius);
@@ -113,12 +116,17 @@ function EatOutContent() {
   }, [visitedRecords]);
 
   // Filters
-  const [openOnly, setOpenOnly] = useState(true);
+  const [openOnly, setOpenOnly] = useState(searchParams.has('openNow') ? openNowFromQuery : true);
   const [sortBy, setSortBy] = useState<SortBy>('distance');
   const [filtersOpened, { toggle: toggleFilters }] = useDisclosure(false);
   const mapWrapperRef = useRef<HTMLDivElement | null>(null);
   const resultsViewportRef = useRef<HTMLDivElement | null>(null);
   const restaurantCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  useEffect(() => {
+    if (!searchParams.has('openNow')) return;
+    setOpenOnly(openNowFromQuery);
+  }, [openNowFromQuery, searchParams]);
 
   const category = categories.find((c) => c.id === categoryId);
   const effectiveSearchRadiusKm = normalizeSearchRadiusKm(searchRadiusKm);
@@ -203,10 +211,15 @@ function EatOutContent() {
         locale,
       });
 
-      if (category) {
-        // HotPepper is Japanese-only — always use Japanese category name
-        const kw = provider === 'hotpepper' ? category.name.ja : category.name[locale];
-        params.set('keyword', kw);
+      const categoryKeyword = category
+        ? provider === 'hotpepper'
+          ? category.name.ja
+          : category.name[locale]
+        : undefined;
+      const searchKeyword = combineKeywordTerms(keyword, categoryKeyword);
+
+      if (searchKeyword) {
+        params.set('keyword', searchKeyword);
       }
       if (openOnly) {
         params.set('openNow', 'true');
@@ -227,7 +240,7 @@ function EatOutContent() {
     } finally {
       setLoading(false);
     }
-  }, [lat, lng, provider, effectiveSearchRadiusKm, category, locale, openOnly]);
+  }, [lat, lng, provider, effectiveSearchRadiusKm, category, keyword, locale, openOnly]);
 
   const pickRandomRestaurant = useCallback(
     (excludeId?: string | null) => {
@@ -401,6 +414,7 @@ function EatOutContent() {
   }, [fetchRestaurants, hasSearchLocation]);
 
   const l = useLabels(locale);
+  const pageTitle = category ? category.name[locale] : keyword || l.title;
   const hasResults = !loading && !error && restaurants.length > 0;
   const hasActiveClientFilters = minRating > 0 || maxBudgetLevel > 0 || partySize > 1;
   const activeRestaurant =
@@ -416,8 +430,13 @@ function EatOutContent() {
               <Group justify="space-between" align="center" gap="sm" wrap="nowrap">
                 <Box style={{ flex: 1, minWidth: 0 }}>
                   <Title order={2} size="h3" fw={800} style={{ letterSpacing: '-0.03em' }}>
-                    {category ? category.name[locale] : l.title}
+                    {pageTitle}
                   </Title>
+                  {keyword && (
+                    <Text size="sm" c="dimmed" mt={4}>
+                      {l.keywordSummary(keyword)}
+                    </Text>
+                  )}
                 </Box>
                 <Button
                   variant="subtle"
@@ -429,6 +448,26 @@ function EatOutContent() {
                   {l.back}
                 </Button>
               </Group>
+
+              {(keyword || category || openNowFromQuery) && (
+                <Group gap="xs" wrap="wrap">
+                  {keyword && (
+                    <Badge variant="light" color="orange" radius="xl">
+                      {l.keywordBadge(keyword)}
+                    </Badge>
+                  )}
+                  {category && (
+                    <Badge variant="outline" color="gray" radius="xl">
+                      {category.name[locale]}
+                    </Badge>
+                  )}
+                  {openNowFromQuery && (
+                    <Badge variant="outline" color="green" radius="xl">
+                      {l.openOnlyShort}
+                    </Badge>
+                  )}
+                </Group>
+              )}
             </Stack>
           </Box>
 
@@ -1137,6 +1176,18 @@ function useLabels(locale: Locale) {
   return useMemo(
     () => ({
       title: locale === 'zh-CN' ? '🍽️ 出去吃' : locale === 'ja' ? '🍽️ 外食する' : '🍽️ Eat Out',
+      keywordSummary:
+        locale === 'zh-CN'
+          ? (keyword: string) => `关键词：${keyword}`
+          : locale === 'ja'
+            ? (keyword: string) => `キーワード: ${keyword}`
+            : (keyword: string) => `Keyword: ${keyword}`,
+      keywordBadge:
+        locale === 'zh-CN'
+          ? (keyword: string) => `搜索: ${keyword}`
+          : locale === 'ja'
+            ? (keyword: string) => `検索: ${keyword}`
+            : (keyword: string) => `Search: ${keyword}`,
       randomPick:
         locale === 'zh-CN'
           ? '🎲 随机推荐'
