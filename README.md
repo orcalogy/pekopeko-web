@@ -1,36 +1,87 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# pekopeko
 
-## Getting Started
+Mobile-first meal picker built with Next.js 16, React 19, Mantine 9, and Zustand.
 
-First, run the development server:
+The app has two modes:
+
+- `Eat Out` is the default. It shows the current location on a Leaflet map, supports cuisine-first restaurant search, random picks, a persistent results map, and map focus that follows the active restaurant while scrolling.
+- `Cook` filters a local food database by mood, season, meal time, and spice tolerance, then uses a slot-style picker to choose a dish.
+
+Locales: `zh-CN`, `ja`, `en`.
+
+## Scripts
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm dev        # Turbopack dev server
+pnpm build      # Production build (Webpack, required by Serwist)
+pnpm start      # Start production server
+pnpm typecheck  # TypeScript
+pnpm check      # Biome check
+pnpm lint       # Biome write mode (see package.json: biome check --write ./src)
+pnpm format     # Biome format
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Setup
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Install dependencies:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+pnpm install
+```
 
-## Learn More
+2. Create `.env.local` with the server-side keys you need:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+GOOGLE_MAPS_SERVER_KEY=
+HOTPEPPER_API_KEY=
+AMAP_SERVER_KEY=
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+3. Start the dev server:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+pnpm dev
+```
 
-## Deploy on Vercel
+## Product Notes
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- No accounts. State is stored in localStorage through Zustand `persist`.
+- Japan uses HotPepper + Google Places merged together.
+- China uses Amap.
+- Other regions use Google Places.
+- Region/provider selection is inferred from reverse geocoding.
+- Maps use Leaflet + OpenStreetMap tiles. API keys stay server-side behind app routes.
+- Search radius uses a non-linear preset scale tuned for walking and short vehicle trips:
+  `300m, 500m, 750m, 1km, 1.5km, 2km, 3km, 4km, 5km, 6km, 8km, 10km`.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Project Structure
+
+```text
+src/
+  app/
+    page.tsx              # Home screen
+    eat-out/page.tsx      # Restaurant search/results
+    settings/page.tsx     # Preferences
+    api/places/nearby/    # Restaurant search proxy
+    api/geocode/reverse/  # Region/provider detection
+    api/places/photo/     # Google photo proxy
+    sw.ts                 # Serwist service worker entry
+  components/
+    food/                 # Cook-mode result UI
+    picker/               # Slot-style food picker
+    restaurant/           # Cards and Leaflet map
+    filters/              # Mood/season/meal-time UI
+    layout/               # App shell, providers, bottom nav
+  data/                   # Static food/category metadata
+  lib/                    # Filtering, time/season logic, map adapters
+  stores/                 # Zustand stores
+  types/                  # Shared types
+  i18n/                   # next-intl config and message files
+```
+
+## Engineering Notes
+
+- `useSearchParams()` on Next.js 16 must be wrapped in `Suspense`.
+- `react-leaflet` components are dynamically imported with `ssr: false`.
+- `pnpm build` uses `--webpack` because Serwist does not build correctly with Turbopack.
+- UI copy is mostly inline locale ternaries in TSX; multilingual food names live in the data layer.
