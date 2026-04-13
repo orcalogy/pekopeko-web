@@ -1,0 +1,89 @@
+{
+  "app": {
+    "name": "今天吃什么",
+    "tagline": "解决你的选择困难症"
+  },
+  "mode": {
+    "cook": "自己做",
+    "eatOut": "出去吃"
+  },
+  "meal": {
+    "breakfast": "早餐",
+    "lunch": "午餐",
+    "afternoon": "下午茶",
+    "dinner": "晚餐",
+    "latenight": "夜宵"
+  },
+  "season": {
+    "spring": "春季",
+    "summer": "夏季",
+    "autumn": "秋季",
+    "winter": "冬季",
+    "seasonal": "当季推荐"
+  },
+  "mood": {
+    "title": "今天心情如何？",
+    "happy": "开心",
+    "sad": "低落",
+    "tired": "疲惫",
+    "stressed": "压力大",
+    "adventurous": "想冒险",
+    "comfort": "想治愈"
+  },
+  "wheel": {
+    "spin": "开转！",
+    "spinning": "转转转...",
+    "result": "就吃这个！",
+    "respin": "换一个",
+    "notThis": "不要这个"
+  },
+  "cook": {
+    "difficulty": "难度",
+    "cookTime": "烹饪时间",
+    "minutes": "分钟",
+    "funFact": "冷知识",
+    "ingredients": "主要食材"
+  },
+  "eatOut": {
+    "searching": "正在搜索附近餐厅...",
+    "noResults": "附近没有找到相关餐厅",
+    "openNow": "营业中",
+    "closed": "已打烊",
+    "distance": "距离",
+    "rating": "评分",
+    "navigate": "导航过去",
+    "listView": "列表",
+    "mapView": "地图",
+    "filters": "筛选",
+    "openOnly": "仅看营业中",
+    "priceLevel": "价位",
+    "distanceRange": "距离范围"
+  },
+  "settings": {
+    "title": "设置",
+    "dietary": "饮食偏好",
+    "vegetarian": "素食",
+    "halal": "清真",
+    "noSpicy": "不吃辣",
+    "excluded": "不想吃的",
+    "language": "语言",
+    "theme": "主题",
+    "dark": "深色",
+    "light": "浅色",
+    "auto": "跟随系统",
+    "distance": "搜索距离",
+    "history": "历史记录",
+    "clearHistory": "清除历史"
+  },
+  "nav": {
+    "home": "首页",
+    "settings": "设置"
+  },
+  "common": {
+    "loading": "加载中...",
+    "error": "出错了",
+    "retry": "重试",
+    "km": "公里",
+    "m": "米"
+  }
+}

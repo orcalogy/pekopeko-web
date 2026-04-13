@@ -1,0 +1,89 @@
+{
+  "app": {
+    "name": "pekopeko",
+    "tagline": "Solve your food choice paralysis"
+  },
+  "mode": {
+    "cook": "Cook at Home",
+    "eatOut": "Eat Out"
+  },
+  "meal": {
+    "breakfast": "Breakfast",
+    "lunch": "Lunch",
+    "afternoon": "Afternoon Tea",
+    "dinner": "Dinner",
+    "latenight": "Late Night"
+  },
+  "season": {
+    "spring": "Spring",
+    "summer": "Summer",
+    "autumn": "Autumn",
+    "winter": "Winter",
+    "seasonal": "In Season"
+  },
+  "mood": {
+    "title": "How are you feeling?",
+    "happy": "Happy",
+    "sad": "Down",
+    "tired": "Tired",
+    "stressed": "Stressed",
+    "adventurous": "Adventurous",
+    "comfort": "Need Comfort"
+  },
+  "wheel": {
+    "spin": "Spin!",
+    "spinning": "Spinning...",
+    "result": "Let's eat this!",
+    "respin": "Spin Again",
+    "notThis": "Not This One"
+  },
+  "cook": {
+    "difficulty": "Difficulty",
+    "cookTime": "Cook Time",
+    "minutes": "min",
+    "funFact": "Fun Fact",
+    "ingredients": "Main Ingredients"
+  },
+  "eatOut": {
+    "searching": "Searching nearby restaurants...",
+    "noResults": "No restaurants found nearby",
+    "openNow": "Open",
+    "closed": "Closed",
+    "distance": "Distance",
+    "rating": "Rating",
+    "navigate": "Navigate",
+    "listView": "List",
+    "mapView": "Map",
+    "filters": "Filters",
+    "openOnly": "Open Now Only",
+    "priceLevel": "Price Level",
+    "distanceRange": "Distance Range"
+  },
+  "settings": {
+    "title": "Settings",
+    "dietary": "Dietary Preferences",
+    "vegetarian": "Vegetarian",
+    "halal": "Halal",
+    "noSpicy": "No Spicy",
+    "excluded": "Excluded Foods",
+    "language": "Language",
+    "theme": "Theme",
+    "dark": "Dark",
+    "light": "Light",
+    "auto": "System",
+    "distance": "Search Distance",
+    "history": "History",
+    "clearHistory": "Clear History"
+  },
+  "nav": {
+    "home": "Home",
+    "settings": "Settings"
+  },
+  "common": {
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Retry",
+    "km": "km",
+    "m": "m"
+  }
+}

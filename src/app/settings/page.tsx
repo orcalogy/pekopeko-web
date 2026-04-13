@@ -1,0 +1,279 @@
+'use client';
+
+import {
+  Box,
+  Button,
+  Card,
+  Container,
+  Group,
+  SegmentedControl,
+  Slider,
+  Stack,
+  Text,
+  Title,
+  useMantineColorScheme,
+} from '@mantine/core';
+import { AppShell } from '@/components/layout/AppShell';
+import type { AppLocale } from '@/i18n/request';
+import { useAppState } from '@/stores/app-state';
+import { usePreferences } from '@/stores/preferences';
+import { useVisited } from '@/stores/visited';
+
+export default function SettingsPage() {
+  const {
+    locale,
+    theme,
+    maxSpicy,
+    searchRadiusKm,
+    minRating,
+    setLocale,
+    setTheme,
+    setMaxSpicy,
+    setSearchRadius,
+    setMinRating,
+  } = usePreferences();
+
+  const { history, clearHistory } = useAppState();
+  const {
+    records: visitedRecords,
+    removeRecord: removeVisited,
+    clearAll: clearVisited,
+  } = useVisited();
+  const { setColorScheme } = useMantineColorScheme();
+
+  const handleThemeChange = (value: string) => {
+    const t = value as 'light' | 'dark' | 'auto';
+    setTheme(t);
+    setColorScheme(t);
+  };
+
+  const handleLocaleChange = async (value: string) => {
+    setLocale(value as AppLocale);
+    // Set cookie for server-side locale detection
+    if ('cookieStore' in window) {
+      await (
+        window as unknown as {
+          cookieStore: { set: (opts: Record<string, unknown>) => Promise<void> };
+        }
+      ).cookieStore.set({
+        name: 'locale',
+        value,
+        path: '/',
+        maxAge: 31536000,
+      });
+    }
+  };
+
+  const labels = {
+    title: { 'zh-CN': '设置', ja: '設定', en: 'Settings' },
+    language: { 'zh-CN': '语言', ja: '言語', en: 'Language' },
+    theme: { 'zh-CN': '主题', ja: 'テーマ', en: 'Theme' },
+    light: { 'zh-CN': '浅色', ja: 'ライト', en: 'Light' },
+    dark: { 'zh-CN': '深色', ja: 'ダーク', en: 'Dark' },
+    auto: { 'zh-CN': '自动', ja: '自動', en: 'Auto' },
+    foodPrefs: { 'zh-CN': '口味偏好', ja: '味の好み', en: 'Taste Preferences' },
+    spicyMax: { 'zh-CN': '辣度上限', ja: '辛さ上限', en: 'Max Spicy' },
+    searchDist: { 'zh-CN': '搜索距离', ja: '検索距離', en: 'Search Distance' },
+    minRating: { 'zh-CN': '最低评分', ja: '最低評価', en: 'Min Rating' },
+    minRatingAny: { 'zh-CN': '不限', ja: '指定なし', en: 'Any' },
+    history: { 'zh-CN': '历史记录', ja: '履歴', en: 'History' },
+    clearHist: { 'zh-CN': '清除历史', ja: '履歴クリア', en: 'Clear History' },
+    records: { 'zh-CN': '条记录', ja: '件の記録', en: 'records' },
+    visited: { 'zh-CN': '吃过的店', ja: '訪問済みのお店', en: 'Visited Restaurants' },
+    clearVisited: { 'zh-CN': '清除记录', ja: '記録をクリア', en: 'Clear All' },
+    visitedCount: { 'zh-CN': '家店', ja: '件のお店', en: 'restaurants' },
+    visitTimes: { 'zh-CN': '次', ja: '回', en: 'visits' },
+    remove: { 'zh-CN': '移除', ja: '削除', en: 'Remove' },
+  } as const;
+
+  const l = (key: keyof typeof labels) => labels[key][locale];
+
+  const spicyLabels: Record<number, string> = {
+    0: locale === 'zh-CN' ? '不吃辣' : locale === 'ja' ? '辛くない' : 'None',
+    1: locale === 'zh-CN' ? '微辣' : locale === 'ja' ? 'ちょい辛' : 'Mild',
+    2: locale === 'zh-CN' ? '中辣' : locale === 'ja' ? '中辛' : 'Medium',
+    3: locale === 'zh-CN' ? '特辣' : locale === 'ja' ? '激辛' : 'Hot',
+  };
+
+  return (
+    <AppShell>
+      <Container py="md" px="md">
+        <Stack gap="lg">
+          <Title order={2} size="h3">
+            {'\u{2699}\u{FE0F}'} {l('title')}
+          </Title>
+
+          {/* Language */}
+          <Card padding="md" radius="md" withBorder>
+            <Text fw={600} mb="sm">
+              {l('language')}
+            </Text>
+            <SegmentedControl
+              value={locale}
+              onChange={handleLocaleChange}
+              data={[
+                { value: 'zh-CN', label: '中文' },
+                { value: 'ja', label: '日本語' },
+                { value: 'en', label: 'English' },
+              ]}
+              fullWidth
+              radius="xl"
+            />
+          </Card>
+
+          {/* Theme */}
+          <Card padding="md" radius="md" withBorder>
+            <Text fw={600} mb="sm">
+              {l('theme')}
+            </Text>
+            <SegmentedControl
+              value={theme}
+              onChange={handleThemeChange}
+              data={[
+                { value: 'light', label: `\u{2600}\u{FE0F} ${l('light')}` },
+                { value: 'dark', label: `\u{1F319} ${l('dark')}` },
+                { value: 'auto', label: `\u{1F4F1} ${l('auto')}` },
+              ]}
+              fullWidth
+              radius="xl"
+            />
+          </Card>
+
+          {/* Taste preferences */}
+          <Card padding="md" radius="md" withBorder>
+            <Text fw={600} mb="sm">
+              {l('foodPrefs')}
+            </Text>
+            <Box>
+              <Text size="sm" mb="xs">
+                {l('spicyMax')}: {spicyLabels[maxSpicy]}
+              </Text>
+              <Slider
+                value={maxSpicy}
+                onChange={setMaxSpicy}
+                min={0}
+                max={3}
+                step={1}
+                marks={[
+                  { value: 0, label: spicyLabels[0] },
+                  { value: 1, label: spicyLabels[1] },
+                  { value: 2, label: spicyLabels[2] },
+                  { value: 3, label: spicyLabels[3] },
+                ]}
+                color="red"
+              />
+            </Box>
+          </Card>
+
+          {/* Search Distance */}
+          <Card padding="md" radius="md" withBorder>
+            <Text fw={600} mb="sm">
+              {l('searchDist')}: {searchRadiusKm} km
+            </Text>
+            <Slider
+              value={searchRadiusKm}
+              onChange={setSearchRadius}
+              min={0.5}
+              max={10}
+              step={0.5}
+              marks={[
+                { value: 1, label: '1km' },
+                { value: 3, label: '3km' },
+                { value: 5, label: '5km' },
+                { value: 10, label: '10km' },
+              ]}
+              color="orange"
+            />
+          </Card>
+
+          {/* Min Rating */}
+          <Card padding="md" radius="md" withBorder>
+            <Text fw={600} mb="sm">
+              {l('minRating')}: {minRating > 0 ? `${minRating}+` : l('minRatingAny')}
+            </Text>
+            <Slider
+              value={minRating}
+              onChange={setMinRating}
+              min={0}
+              max={4.5}
+              step={0.5}
+              marks={[
+                { value: 0, label: l('minRatingAny') },
+                { value: 3, label: '3' },
+                { value: 4, label: '4' },
+                { value: 4.5, label: '4.5' },
+              ]}
+              color="yellow"
+            />
+          </Card>
+
+          {/* History */}
+          <Card padding="md" radius="md" withBorder>
+            <Group justify="space-between" align="center">
+              <Box>
+                <Text fw={600}>{l('history')}</Text>
+                <Text size="sm" c="dimmed">
+                  {history.length} {l('records')}
+                </Text>
+              </Box>
+              <Button
+                variant="light"
+                color="red"
+                size="xs"
+                onClick={clearHistory}
+                disabled={history.length === 0}
+              >
+                {l('clearHist')}
+              </Button>
+            </Group>
+          </Card>
+
+          {/* Visited Restaurants */}
+          <Card padding="md" radius="md" withBorder>
+            <Group justify="space-between" align="center" mb={visitedRecords.length > 0 ? 'sm' : 0}>
+              <Box>
+                <Text fw={600}>{l('visited')}</Text>
+                <Text size="sm" c="dimmed">
+                  {visitedRecords.length} {l('visitedCount')}
+                </Text>
+              </Box>
+              <Button
+                variant="light"
+                color="red"
+                size="xs"
+                onClick={clearVisited}
+                disabled={visitedRecords.length === 0}
+              >
+                {l('clearVisited')}
+              </Button>
+            </Group>
+            {visitedRecords.length > 0 && (
+              <Stack gap="xs">
+                {visitedRecords.map((record) => (
+                  <Group key={record.id} justify="space-between" align="center">
+                    <Box style={{ flex: 1, minWidth: 0 }}>
+                      <Text size="sm" lineClamp={1}>
+                        {record.name}
+                      </Text>
+                      <Text size="xs" c="dimmed">
+                        {record.visits.length} {l('visitTimes')}
+                      </Text>
+                    </Box>
+                    <Button
+                      variant="subtle"
+                      color="red"
+                      size="xs"
+                      onClick={() => removeVisited(record.id)}
+                    >
+                      {l('remove')}
+                    </Button>
+                  </Group>
+                ))}
+              </Stack>
+            )}
+          </Card>
+        </Stack>
+      </Container>
+    </AppShell>
+  );
+}
