@@ -19,12 +19,7 @@ const spicyLabels: Record<number, Record<Locale, string>> = {
   3: { 'zh-CN': '特辣', ja: '激辛', en: 'Very Spicy' },
 };
 
-const spicyEmojis = [
-  '',
-  '\u{1F336}\u{FE0F}',
-  '\u{1F336}\u{FE0F}\u{1F336}\u{FE0F}',
-  '\u{1F525}\u{1F525}\u{1F525}',
-];
+const spicyEmojis = ['', '🌶️', '🌶️🌶️', '🔥🔥🔥'];
 
 const difficultyLabels: Record<Locale, string> = {
   'zh-CN': '难度',
@@ -54,7 +49,7 @@ export function FoodCard({ food, locale, showCookInfo = true, currentSeason }: F
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ type: 'spring', stiffness: 300, damping: 25 }}
     >
-      <Card shadow="md" radius="lg" padding="lg" withBorder>
+      <Card radius="md" padding="lg" withBorder style={{ background: 'var(--app-surface-strong)' }}>
         <Stack gap="sm">
           {/* Title */}
           <Group justify="space-between" align="start">
@@ -119,19 +114,9 @@ export function FoodCard({ food, locale, showCookInfo = true, currentSeason }: F
           {food.funFact?.[locale] && (
             <>
               <Divider />
-              <Box
-                p="sm"
-                style={(mantineTheme) => ({
-                  borderRadius: mantineTheme.radius.md,
-                  backgroundColor: 'var(--mantine-color-orange-light)',
-                })}
-              >
+              <Box className="app-panel-muted" p="sm">
                 <Text size="xs" fw={600} c="orange" mb={4}>
-                  {locale === 'zh-CN'
-                    ? '\u{1F4A1} 冷知识'
-                    : locale === 'ja'
-                      ? '\u{1F4A1} 豆知識'
-                      : '\u{1F4A1} Fun Fact'}
+                  {locale === 'zh-CN' ? '💡 冷知识' : locale === 'ja' ? '💡 豆知識' : '💡 Fun Fact'}
                 </Text>
                 <Text size="sm">{food.funFact[locale]}</Text>
               </Box>

@@ -27,19 +27,25 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { AppShell } from '@/components/layout/AppShell';
 import { FEATURE_LABELS, RestaurantCard } from '@/components/restaurant/RestaurantCard';
 
-const RestaurantMap = dynamic(
-  () => import('@/components/restaurant/RestaurantMap').then((m) => m.RestaurantMap),
-  {
-    ssr: false,
-    loading: () => (
-      <Center py="xl">
-        <Loader color="orange" />
-      </Center>
-    ),
-  },
-);
+const RestaurantMap = dynamic(() => import('../../components/restaurant/RestaurantMap'), {
+  ssr: false,
+  loading: () => (
+    <Center py="xl">
+      <Loader color="orange" />
+    </Center>
+  ),
+});
 
 import { categories } from '@/data/categories';
+import {
+  formatSearchRadius,
+  formatSearchRadiusMark,
+  getSearchRadiusKmForIndex,
+  getSearchRadiusPresetIndex,
+  getSearchRadiusSliderMax,
+  normalizeSearchRadiusKm,
+  SEARCH_RADIUS_MARK_PRESETS_KM,
+} from '@/lib/search-radius';
 import { useLocation } from '@/stores/location';
 import { usePreferences } from '@/stores/preferences';
 import { useVisited, weightedRandomPick } from '@/stores/visited';
@@ -48,6 +54,7 @@ import type { Restaurant } from '@/types/restaurant';
 
 type SortBy = 'distance' | 'rating';
 const LOCATION_MAX_AGE_MS = 30 * 60 * 1000;
+const PERSISTENT_MAP_HEIGHT = 196;
 
 export default function EatOutPage() {
   return (
@@ -86,6 +93,7 @@ function EatOutContent() {
 
   const [allRestaurants, setAllRestaurants] = useState<Restaurant[]>([]);
   const [pickedRestaurant, setPickedRestaurant] = useState<Restaurant | null>(null);
+  const [activeRestaurantId, setActiveRestaurantId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -101,15 +109,18 @@ function EatOutContent() {
   const [minRating, setMinRating] = useState(prefMinRating);
   const [sortBy, setSortBy] = useState<SortBy>('distance');
   const [filtersOpened, { toggle: toggleFilters }] = useDisclosure(false);
-  const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
+  const mapWrapperRef = useRef<HTMLDivElement | null>(null);
+  const resultsViewportRef = useRef<HTMLDivElement | null>(null);
+  const restaurantCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const category = categories.find((c) => c.id === categoryId);
+  const effectiveSearchRadiusKm = normalizeSearchRadiusKm(searchRadiusKm);
+  const searchRadiusIndex = getSearchRadiusPresetIndex(effectiveSearchRadiusKm);
+  const hasCoordinates = lat != null && lng != null;
+  const hasSearchLocation = hasCoordinates && !!provider;
   const needsFreshLocation =
-    lat == null ||
-    lng == null ||
-    !provider ||
-    !locatedAt ||
-    Date.now() - locatedAt > LOCATION_MAX_AGE_MS;
+    !hasCoordinates || !locatedAt || Date.now() - locatedAt > LOCATION_MAX_AGE_MS;
+  const canUseStoredLocation = !needsFreshLocation && hasSearchLocation;
 
   // Derive displayed list from raw data + client-side filters
   const restaurants = useMemo(() => {
@@ -128,9 +139,32 @@ function EatOutContent() {
     return list;
   }, [allRestaurants, minRating, sortBy]);
 
+  const displayRestaurants = useMemo(() => {
+    if (!isRandomMode || !pickedRestaurant) {
+      return restaurants;
+    }
+
+    const picked = restaurants.find((restaurant) => restaurant.id === pickedRestaurant.id);
+    if (!picked) {
+      return restaurants;
+    }
+
+    return [picked, ...restaurants.filter((restaurant) => restaurant.id !== picked.id)];
+  }, [isRandomMode, pickedRestaurant, restaurants]);
+
+  const randomCandidateSignature = useMemo(
+    () =>
+      [...restaurants]
+        .map((restaurant) => restaurant.id)
+        .sort()
+        .join('|'),
+    [restaurants],
+  );
+
   // Track whether this is the initial fetch (for auto-picking in random mode)
   const initialFetchDone = useRef(false);
   const autoLocationRequestDone = useRef(false);
+  const lastRandomCandidateSignatureRef = useRef('');
 
   const fetchRestaurants = useCallback(async () => {
     if (lat == null || lng == null || !provider) return;
@@ -144,7 +178,7 @@ function EatOutContent() {
         provider,
         lat: String(lat),
         lng: String(lng),
-        radius: String(searchRadiusKm * 1000),
+        radius: String(effectiveSearchRadiusKm * 1000),
         locale,
       });
 
@@ -172,45 +206,152 @@ function EatOutContent() {
     } finally {
       setLoading(false);
     }
-  }, [lat, lng, provider, searchRadiusKm, category, locale, openOnly]);
+  }, [lat, lng, provider, effectiveSearchRadiusKm, category, locale, openOnly]);
 
-  // Auto-pick in random mode when filtered list changes
+  const pickRandomRestaurant = useCallback(
+    (excludeId?: string | null) => {
+      if (restaurants.length === 0) return null;
+      if (restaurants.length === 1) return restaurants[0];
+
+      for (let i = 0; i < 5; i++) {
+        const next = weightedRandomPick(restaurants, visitedRecordsRef.current);
+        if (!excludeId || next.id !== excludeId) {
+          return next;
+        }
+      }
+
+      const others = restaurants.filter((restaurant) => restaurant.id !== excludeId);
+      return others[Math.floor(Math.random() * others.length)] ?? restaurants[0];
+    },
+    [restaurants],
+  );
+
+  // Auto-pick in random mode when the eligible candidate set changes
   useEffect(() => {
-    if (!isRandomMode) return;
+    if (!isRandomMode) {
+      lastRandomCandidateSignatureRef.current = '';
+      return;
+    }
 
     if (restaurants.length === 0) {
       setPickedRestaurant(null);
+      lastRandomCandidateSignatureRef.current = '';
       return;
     }
 
     if (!initialFetchDone.current) return;
 
     setPickedRestaurant((current) => {
-      if (current && restaurants.some((r) => r.id === current.id)) {
+      const candidateSetChanged =
+        lastRandomCandidateSignatureRef.current !== randomCandidateSignature;
+      lastRandomCandidateSignatureRef.current = randomCandidateSignature;
+
+      if (candidateSetChanged) {
+        return pickRandomRestaurant(current?.id);
+      }
+
+      if (current && restaurants.some((restaurant) => restaurant.id === current.id)) {
         return current;
       }
-      return weightedRandomPick(restaurants, visitedRecordsRef.current);
+
+      return pickRandomRestaurant(current?.id);
     });
-  }, [isRandomMode, restaurants]);
+  }, [isRandomMode, restaurants, randomCandidateSignature, pickRandomRestaurant]);
+
+  useEffect(() => {
+    setActiveRestaurantId((current) => {
+      if (
+        isRandomMode &&
+        pickedRestaurant &&
+        displayRestaurants.some((r) => r.id === pickedRestaurant.id)
+      ) {
+        return pickedRestaurant.id;
+      }
+
+      if (current && displayRestaurants.some((r) => r.id === current)) {
+        return current;
+      }
+
+      return displayRestaurants[0]?.id ?? null;
+    });
+  }, [displayRestaurants, isRandomMode, pickedRestaurant]);
+
+  useEffect(() => {
+    if (!isRandomMode || !pickedRestaurant) return;
+
+    const scrollContainer = resultsViewportRef.current;
+    if (!scrollContainer) return;
+
+    scrollContainer.scrollTo({ top: 0, behavior: 'auto' });
+  }, [isRandomMode, pickedRestaurant]);
+
+  useEffect(() => {
+    if (displayRestaurants.length === 0) return;
+
+    let frameId = 0;
+    const scrollContainer = resultsViewportRef.current;
+    if (!scrollContainer) return;
+
+    const updateActiveRestaurant = () => {
+      frameId = 0;
+
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const anchorY = containerRect.top + Math.min(96, Math.max(56, containerRect.height * 0.28));
+
+      let nextActiveId: string | null = null;
+      let bestDistance = Number.POSITIVE_INFINITY;
+
+      for (const restaurant of displayRestaurants) {
+        const node = restaurantCardRefs.current[restaurant.id];
+        if (!node) continue;
+
+        const rect = node.getBoundingClientRect();
+        if (rect.bottom <= containerRect.top || rect.top >= containerRect.bottom) continue;
+
+        const midpoint = rect.top + rect.height / 2;
+        const distance =
+          rect.top <= anchorY && rect.bottom >= anchorY ? 0 : Math.abs(midpoint - anchorY);
+
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          nextActiveId = restaurant.id;
+        }
+      }
+
+      if (!nextActiveId) {
+        nextActiveId =
+          (isRandomMode ? pickedRestaurant?.id : undefined) ?? displayRestaurants[0]?.id ?? null;
+      }
+
+      if (nextActiveId) {
+        setActiveRestaurantId((current) => (current === nextActiveId ? current : nextActiveId));
+      }
+    };
+
+    const scheduleUpdate = () => {
+      if (frameId) return;
+      frameId = window.requestAnimationFrame(updateActiveRestaurant);
+    };
+
+    scheduleUpdate();
+    scrollContainer.addEventListener('scroll', scheduleUpdate, { passive: true });
+    window.addEventListener('resize', scheduleUpdate);
+
+    return () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+      scrollContainer.removeEventListener('scroll', scheduleUpdate);
+      window.removeEventListener('resize', scheduleUpdate);
+    };
+  }, [displayRestaurants, isRandomMode, pickedRestaurant]);
 
   const handleRepick = useCallback(() => {
-    if (restaurants.length === 0) return;
-    if (restaurants.length === 1) {
-      setPickedRestaurant(restaurants[0]);
-      return;
+    const next = pickRandomRestaurant(pickedRestaurant?.id);
+    if (next) {
+      setPickedRestaurant(next);
     }
-    // Try up to 5 times to pick a different one
-    for (let i = 0; i < 5; i++) {
-      const next = weightedRandomPick(restaurants, visitedRecords);
-      if (next.id !== pickedRestaurant?.id) {
-        setPickedRestaurant(next);
-        return;
-      }
-    }
-    // Fallback: just pick any different one
-    const others = restaurants.filter((r) => r.id !== pickedRestaurant?.id);
-    setPickedRestaurant(others[Math.floor(Math.random() * others.length)]);
-  }, [restaurants, pickedRestaurant, visitedRecords]);
+  }, [pickRandomRestaurant, pickedRestaurant]);
 
   const handleMarkVisited = useCallback(
     (r: Restaurant) => {
@@ -221,7 +362,7 @@ function EatOutContent() {
 
   // Request a fresh location once per mount when persisted coordinates are missing or stale.
   useEffect(() => {
-    if (!needsFreshLocation) {
+    if (canUseStoredLocation) {
       autoLocationRequestDone.current = false;
       return;
     }
@@ -230,147 +371,197 @@ function EatOutContent() {
 
     autoLocationRequestDone.current = true;
     requestLocation();
-  }, [needsFreshLocation, requestLocation]);
+  }, [canUseStoredLocation, requestLocation]);
 
   // Fetch restaurants when location is ready
   useEffect(() => {
-    if (needsFreshLocation) return;
+    if (!hasSearchLocation) return;
     fetchRestaurants();
-  }, [needsFreshLocation, fetchRestaurants]);
+  }, [fetchRestaurants, hasSearchLocation]);
 
   const l = useLabels(locale);
+  const hasResults = !loading && !error && restaurants.length > 0;
+  const activeRestaurant =
+    displayRestaurants.find((restaurant) => restaurant.id === activeRestaurantId) ??
+    pickedRestaurant;
 
   return (
     <AppShell>
-      <Container py="md" px="md">
+      <Container py="sm" px="sm">
         <Stack gap="md">
-          {/* Header */}
-          <Group justify="space-between" align="center">
-            <Box>
-              <Title order={2} size="h3">
-                {l.title}
-              </Title>
-              {category && (
-                <Badge color={category.color} variant="light" size="md" mt={4}>
-                  {category.name[locale]}
-                </Badge>
-              )}
-              {isRandomMode && !category && (
-                <Text size="xs" c="dimmed" mt={4}>
-                  {l.randomPick}
-                </Text>
-              )}
-            </Box>
-            <Button variant="subtle" size="sm" onClick={() => router.back()}>
-              {l.back}
-            </Button>
-          </Group>
+          <Box className="app-hero-card" p="sm">
+            <Stack gap="sm">
+              <Group justify="space-between" align="center" gap="sm" wrap="nowrap">
+                <Box style={{ flex: 1, minWidth: 0 }}>
+                  <Title order={2} size="h3" fw={800} style={{ letterSpacing: '-0.03em' }}>
+                    {category ? category.name[locale] : l.title}
+                  </Title>
+                </Box>
+                <Button
+                  variant="subtle"
+                  size="xs"
+                  radius="xl"
+                  onClick={() => router.back()}
+                  style={{ flexShrink: 0 }}
+                >
+                  {l.back}
+                </Button>
+              </Group>
+            </Stack>
+          </Box>
 
-          {/* View toggle + Filters */}
-          <Group gap="xs">
-            <Button variant="light" size="xs" radius="xl" onClick={toggleFilters}>
-              {'\u{2699}\u{FE0F}'} {l.filter}
-            </Button>
-            <SegmentedControl
-              value={viewMode}
-              onChange={(v) => setViewMode(v as 'list' | 'map')}
-              data={[
-                { value: 'list', label: l.viewList },
-                { value: 'map', label: l.viewMap },
-              ]}
-              size="xs"
-              radius="xl"
-            />
-          </Group>
-          <Box>
-            <Collapse expanded={filtersOpened}>
-              <Stack
-                gap="sm"
-                mt="sm"
-                p="sm"
-                style={{
-                  borderRadius: 'var(--mantine-radius-md)',
-                  border: '1px solid var(--mantine-color-default-border)',
-                }}
-              >
-                <Switch
-                  label={l.openOnly}
-                  checked={openOnly}
-                  onChange={(e) => setOpenOnly(e.currentTarget.checked)}
+          <Box className="app-panel" p="sm">
+            <Stack gap="sm">
+              <Group justify="space-between" align="center" gap="sm" wrap="nowrap">
+                <Box style={{ flex: 1, minWidth: 0 }}>
+                  <Text fw={700}>{l.filterTitle}</Text>
+                </Box>
+                <Button
+                  variant={filtersOpened ? 'filled' : 'light'}
+                  size="xs"
+                  radius="xl"
                   color="orange"
-                />
+                  onClick={toggleFilters}
+                >
+                  {'⚙️'} {l.filter}
+                </Button>
+              </Group>
 
-                {/* Distance */}
-                <Box>
-                  <Text size="sm" mb="xs">
-                    {l.distance}: {searchRadiusKm} km
+              <Group gap="xs" wrap="wrap">
+                <Box className="app-stat-pill">
+                  <Text size="xs" c="dimmed">
+                    {l.distance}
                   </Text>
-                  <Slider
-                    value={searchRadiusKm}
-                    onChange={setSearchRadius}
-                    min={0.5}
-                    max={10}
-                    step={0.5}
-                    marks={[
-                      { value: 1, label: '1km' },
-                      { value: 3, label: '3km' },
-                      { value: 5, label: '5km' },
-                      { value: 10, label: '10km' },
-                    ]}
-                    color="orange"
-                  />
-                </Box>
-
-                {/* Min rating */}
-                <Box>
-                  <Text size="sm" mb="xs">
-                    {l.minRating}: {minRating > 0 ? `${minRating}+` : l.any}
+                  <Text size="sm" fw={600}>
+                    {formatSearchRadius(effectiveSearchRadiusKm)}
                   </Text>
-                  <Slider
-                    value={minRating}
-                    onChange={setMinRating}
-                    min={0}
-                    max={4.5}
-                    step={0.5}
-                    marks={[
-                      { value: 0, label: l.any },
-                      { value: 3, label: '3' },
-                      { value: 4, label: '4' },
-                      { value: 4.5, label: '4.5' },
-                    ]}
-                    color="yellow"
-                  />
                 </Box>
-
-                {/* Sort by */}
-                <Box>
-                  <Text size="sm" mb="xs">
+                <Box className="app-stat-pill">
+                  <Text size="xs" c="dimmed">
+                    {l.minRating}
+                  </Text>
+                  <Text size="sm" fw={600}>
+                    {minRating > 0 ? `${minRating}+` : l.any}
+                  </Text>
+                </Box>
+                <Box className="app-stat-pill">
+                  <Text size="xs" c="dimmed">
                     {l.sortBy}
                   </Text>
-                  <SegmentedControl
-                    value={sortBy}
-                    onChange={(v) => setSortBy(v as SortBy)}
-                    data={[
-                      { value: 'distance', label: l.sortDistance },
-                      { value: 'rating', label: l.sortRating },
-                    ]}
-                    fullWidth
-                    radius="xl"
-                    size="xs"
-                  />
+                  <Text size="sm" fw={600}>
+                    {sortBy === 'distance' ? l.sortDistance : l.sortRating}
+                  </Text>
                 </Box>
+              </Group>
 
-                <Button size="xs" onClick={fetchRestaurants} color="orange">
-                  {l.research}
-                </Button>
-              </Stack>
-            </Collapse>
+              <Collapse expanded={filtersOpened}>
+                <Stack gap="md" mt="sm" className="app-panel-muted" p="sm">
+                  <Box className="app-panel-muted" p="sm">
+                    <Switch
+                      label={l.openOnly}
+                      checked={openOnly}
+                      onChange={(e) => setOpenOnly(e.currentTarget.checked)}
+                      color="orange"
+                    />
+                  </Box>
+
+                  <Box className="app-panel-muted" p="sm">
+                    <Stack gap="sm">
+                      <Group justify="space-between" align="center" gap="sm">
+                        <Text size="sm" fw={600}>
+                          {l.distance}
+                        </Text>
+                        <Badge variant="light" color="orange" radius="xl">
+                          {formatSearchRadius(effectiveSearchRadiusKm)}
+                        </Badge>
+                      </Group>
+                      <Slider
+                        value={searchRadiusIndex}
+                        onChange={(value) => setSearchRadius(getSearchRadiusKmForIndex(value))}
+                        label={(value) => formatSearchRadius(getSearchRadiusKmForIndex(value))}
+                        min={0}
+                        max={getSearchRadiusSliderMax()}
+                        step={1}
+                        color="orange"
+                      />
+                      <SliderScaleLabels
+                        min={0}
+                        max={getSearchRadiusSliderMax()}
+                        marks={SEARCH_RADIUS_MARK_PRESETS_KM.map((km) => ({
+                          value: getSearchRadiusPresetIndex(km),
+                          label: formatSearchRadiusMark(km),
+                        }))}
+                      />
+                    </Stack>
+                  </Box>
+
+                  <Box className="app-panel-muted" p="sm">
+                    <Stack gap="sm">
+                      <Group justify="space-between" align="center" gap="sm">
+                        <Text size="sm" fw={600}>
+                          {l.minRating}
+                        </Text>
+                        <Badge variant="light" color="yellow" radius="xl">
+                          {minRating > 0 ? `${minRating}+` : l.any}
+                        </Badge>
+                      </Group>
+                      <Slider
+                        value={minRating}
+                        onChange={setMinRating}
+                        min={0}
+                        max={4.5}
+                        step={0.5}
+                        color="yellow"
+                      />
+                      <SliderScaleLabels
+                        min={0}
+                        max={4.5}
+                        marks={[
+                          { value: 0, label: l.any },
+                          { value: 3, label: '3' },
+                          { value: 4, label: '4' },
+                          { value: 4.5, label: '4.5' },
+                        ]}
+                      />
+                    </Stack>
+                  </Box>
+
+                  <Box className="app-panel-muted" p="sm">
+                    <Stack gap="sm">
+                      <Group justify="space-between" align="center" gap="sm">
+                        <Text size="sm" fw={600}>
+                          {l.sortBy}
+                        </Text>
+                        <Badge variant="light" color="gray" radius="xl">
+                          {sortBy === 'distance' ? l.sortDistance : l.sortRating}
+                        </Badge>
+                      </Group>
+                      <SegmentedControl
+                        value={sortBy}
+                        onChange={(v) => setSortBy(v as SortBy)}
+                        data={[
+                          { value: 'distance', label: l.sortDistance },
+                          { value: 'rating', label: l.sortRating },
+                        ]}
+                        fullWidth
+                        radius="xl"
+                        size="xs"
+                      />
+                    </Stack>
+                  </Box>
+
+                  <Button size="md" radius="xl" onClick={fetchRestaurants} color="orange">
+                    {l.research}
+                  </Button>
+                </Stack>
+              </Collapse>
+            </Stack>
           </Box>
 
           {/* Location loading */}
-          {locLoading && (
-            <Center py="xl">
-              <Stack align="center" gap="sm">
+          {locLoading && !hasCoordinates && (
+            <Center py="sm">
+              <Stack align="center" gap="sm" className="app-panel-muted" p="lg" w="100%">
                 <Loader color="orange" />
                 <Text c="dimmed" size="sm">
                   {l.gettingLocation}
@@ -380,8 +571,8 @@ function EatOutContent() {
           )}
 
           {/* Location error */}
-          {locError && (
-            <Stack align="center" gap="sm" py="xl">
+          {locError && !hasCoordinates && (
+            <Stack align="center" gap="sm" py="sm" className="app-panel-muted" p="lg">
               <Text c="red" size="sm">
                 {l.locationError}
                 {locError}
@@ -394,8 +585,8 @@ function EatOutContent() {
 
           {/* Search loading */}
           {loading && !locLoading && (
-            <Center py="xl">
-              <Stack align="center" gap="sm">
+            <Center py="sm">
+              <Stack align="center" gap="sm" className="app-panel-muted" p="lg" w="100%">
                 <Loader color="orange" />
                 <Text c="dimmed" size="sm">
                   {l.searching}
@@ -406,7 +597,7 @@ function EatOutContent() {
 
           {/* Search error */}
           {error && (
-            <Stack align="center" gap="sm" py="xl">
+            <Stack align="center" gap="sm" py="sm" className="app-panel-muted" p="lg">
               <Text c="red" size="sm">
                 {error}
               </Text>
@@ -414,6 +605,41 @@ function EatOutContent() {
                 {l.retry}
               </Button>
             </Stack>
+          )}
+
+          {/* Persistent map when there are no results yet */}
+          {hasCoordinates && !hasResults && (
+            <Box className="app-map-frame">
+              <Box
+                px="md"
+                py="sm"
+                style={{ borderBottom: '1px solid var(--app-border)' }}
+                ref={mapWrapperRef}
+              >
+                <Group justify="space-between" gap="xs">
+                  <Box>
+                    <Text fw={700} size="sm">
+                      {l.mapPreviewTitle}
+                    </Text>
+                  </Box>
+                  <Box className="app-stat-pill">
+                    <Text size="sm" fw={600}>
+                      {l.providerLabel[provider ?? 'google']}
+                    </Text>
+                  </Box>
+                </Group>
+              </Box>
+              <RestaurantMap
+                restaurants={restaurants}
+                userLat={lat}
+                userLng={lng}
+                focusedId={activeRestaurantId}
+                locale={locale}
+                height={PERSISTENT_MAP_HEIGHT}
+                minHeight={PERSISTENT_MAP_HEIGHT}
+                maxHeight={PERSISTENT_MAP_HEIGHT}
+              />
+            </Box>
           )}
 
           {/* Random mode: highlighted pick */}
@@ -427,28 +653,31 @@ function EatOutContent() {
                 transition={{ duration: 0.3 }}
               >
                 <Card
-                  shadow="md"
-                  radius="lg"
-                  padding="lg"
+                  radius="md"
+                  padding="md"
                   withBorder
-                  style={{ borderColor: theme.colors.orange[5], borderWidth: 2 }}
+                  style={{
+                    borderColor: theme.colors.orange[4],
+                    background: 'var(--app-surface-strong)',
+                    boxShadow: 'var(--app-shadow-sm)',
+                  }}
                 >
                   {pickedRestaurant.photoUrl && (
                     <Card.Section>
                       <Image
                         src={pickedRestaurant.photoUrl}
                         alt={pickedRestaurant.name}
-                        h={200}
+                        h={172}
                         fallbackSrc=""
                         style={{ objectFit: 'cover' }}
                       />
                     </Card.Section>
                   )}
-                  <Stack gap="sm" mt={pickedRestaurant.photoUrl ? 'md' : 0}>
+                  <Stack gap="xs" mt={pickedRestaurant.photoUrl ? 'sm' : 0}>
                     <Text size="xs" fw={600} c="orange" tt="uppercase">
                       {l.todaysPick}
                     </Text>
-                    <Text fw={700} size="xl">
+                    <Text fw={700} size="lg">
                       {pickedRestaurant.name}
                     </Text>
                     {pickedRestaurant.cuisineType && (
@@ -456,16 +685,25 @@ function EatOutContent() {
                         {pickedRestaurant.cuisineType}
                       </Badge>
                     )}
-                    <Text size="sm" c="dimmed">
+                    <Text size="xs" c="dimmed">
                       {pickedRestaurant.address}
                     </Text>
                     {pickedRestaurant.accessInfo && (
-                      <Text size="sm" c="teal">
-                        {'\u{1F689}'} {pickedRestaurant.accessInfo}
+                      <Text size="xs" c="teal">
+                        {'🚉'} {pickedRestaurant.accessInfo}
                       </Text>
                     )}
 
                     <Group gap="sm">
+                      {pickedRestaurant.source && (
+                        <Badge
+                          variant="light"
+                          size="sm"
+                          color={getSourceBadgeColor(pickedRestaurant.source)}
+                        >
+                          {l.sourceLabel[pickedRestaurant.source]}
+                        </Badge>
+                      )}
                       <Badge variant="outline" size="sm" color="blue">
                         {pickedRestaurant.distance >= 1000
                           ? `${(pickedRestaurant.distance / 1000).toFixed(1)} km`
@@ -473,12 +711,12 @@ function EatOutContent() {
                       </Badge>
                       {pickedRestaurant.rating && (
                         <Badge variant="light" size="sm" color="yellow">
-                          {'\u{2B50}'} {pickedRestaurant.rating.toFixed(1)}
+                          {'⭐'} {pickedRestaurant.rating.toFixed(1)}
                         </Badge>
                       )}
                       {pickedRestaurant.priceLevel && (
                         <Badge variant="outline" size="sm" color="green">
-                          {'\u{00A5}'.repeat(pickedRestaurant.priceLevel)}
+                          {'¥'.repeat(pickedRestaurant.priceLevel)}
                         </Badge>
                       )}
                       {pickedRestaurant.budgetText && (
@@ -512,13 +750,13 @@ function EatOutContent() {
                       <Box>
                         {pickedRestaurant.openingHours.length === 1 ? (
                           <Text size="xs" c="dimmed">
-                            {'\u{1F552}'} {pickedRestaurant.openingHours[0]}
+                            {'🕒'} {pickedRestaurant.openingHours[0]}
                           </Text>
                         ) : (
                           <Stack gap={2}>
                             {pickedRestaurant.openingHours.map((h) => (
                               <Text key={h} size="xs" c="dimmed" fw={isTodayLine(h) ? 600 : 400}>
-                                {isTodayLine(h) ? '\u{1F449} ' : ''}
+                                {isTodayLine(h) ? '👉 ' : ''}
                                 {h}
                               </Text>
                             ))}
@@ -535,7 +773,7 @@ function EatOutContent() {
                         href={`tel:${pickedRestaurant.phone}`}
                         style={{ textDecoration: 'none' }}
                       >
-                        {'\u{1F4DE}'} {pickedRestaurant.phone}
+                        {'📞'} {pickedRestaurant.phone}
                       </Text>
                     )}
 
@@ -553,7 +791,7 @@ function EatOutContent() {
                             target="_blank"
                             rel="noopener noreferrer"
                           >
-                            {'\u{1F4CB}'} {l.menu}
+                            {'📋'} {l.menu}
                           </Button>
                         )}
                         {pickedRestaurant.detailUrl?.includes('hotpepper.jp') && (
@@ -604,7 +842,7 @@ function EatOutContent() {
 
                     {visitedRecords.find((v) => v.id === pickedRestaurant.id) && (
                       <Badge variant="light" color="grape" size="sm" w="fit-content">
-                        {'\u{2705}'} {l.visited}
+                        {'✅'} {l.visited}
                       </Badge>
                     )}
 
@@ -622,10 +860,10 @@ function EatOutContent() {
                         target="_blank"
                         rel="noopener noreferrer"
                       >
-                        {'\u{1F4CD}'} {l.navigate}
+                        {'📍'} {l.navigate}
                       </Button>
                       <Button variant="light" color="orange" radius="xl" onClick={handleRepick}>
-                        {'\u{1F504}'} {l.another}
+                        {'🔄'} {l.another}
                       </Button>
                     </Group>
                     <Group gap="xs">
@@ -637,7 +875,7 @@ function EatOutContent() {
                         style={{ flex: 1 }}
                         onClick={() => handleMarkVisited(pickedRestaurant)}
                       >
-                        {'\u{1F37D}\u{FE0F}'} {l.markVisited}
+                        {'🍽️'} {l.markVisited}
                       </Button>
                       {pickedRestaurant.couponUrl && (
                         <Button
@@ -650,7 +888,7 @@ function EatOutContent() {
                           target="_blank"
                           rel="noopener noreferrer"
                         >
-                          {'\u{1F3AB}'} {l.coupon}
+                          {'🎫'} {l.coupon}
                         </Button>
                       )}
                       {pickedRestaurant.detailUrl && (
@@ -675,44 +913,91 @@ function EatOutContent() {
           )}
 
           {/* Results */}
-          {!loading && !error && restaurants.length > 0 && (
-            <>
-              {/* Result count */}
-              <Text size="sm" c="dimmed" ta="center">
-                {locale === 'zh-CN'
-                  ? `\u5171 ${restaurants.length} \u5BB6\u9910\u5385`
-                  : locale === 'ja'
-                    ? `${restaurants.length}\u4EF6`
-                    : `${restaurants.length} results`}
-              </Text>
-
-              {/* Map view */}
-              {viewMode === 'map' && lat != null && lng != null && (
-                <RestaurantMap
-                  restaurants={restaurants}
-                  userLat={lat}
-                  userLng={lng}
-                  pickedId={pickedRestaurant?.id}
-                  locale={locale}
-                />
-              )}
-
-              {/* List view */}
-              {viewMode === 'list' && (
-                <Stack gap="sm">
-                  {restaurants.map((r, i) => (
-                    <RestaurantCard
-                      key={r.id}
-                      restaurant={r}
+          {hasResults && (
+            <Box className="app-panel" p="sm">
+              <Stack gap="sm">
+                {hasCoordinates && (
+                  <Box className="app-map-frame" ref={mapWrapperRef}>
+                    <Box px="sm" py="xs" style={{ borderBottom: '1px solid var(--app-border)' }}>
+                      <Group justify="space-between" gap="sm" align="center">
+                        <Box style={{ flex: 1, minWidth: 0 }}>
+                          <Text fw={700} size="sm">
+                            {l.resultsMapTitle}
+                          </Text>
+                        </Box>
+                        {activeRestaurant && (
+                          <Group gap="xs" wrap="wrap" justify="flex-end">
+                            {isRandomMode &&
+                              pickedRestaurant &&
+                              activeRestaurant?.id === pickedRestaurant.id && (
+                                <Badge color="orange" variant="filled" size="sm">
+                                  {l.mapLockedToPick}
+                                </Badge>
+                              )}
+                            <Badge color="orange" variant="light" size="md">
+                              {activeRestaurant.name}
+                            </Badge>
+                          </Group>
+                        )}
+                      </Group>
+                    </Box>
+                    <RestaurantMap
+                      restaurants={displayRestaurants}
+                      userLat={lat}
+                      userLng={lng}
+                      focusedId={activeRestaurantId}
                       locale={locale}
-                      index={i}
-                      onMarkVisited={handleMarkVisited}
-                      isVisited={visitedRecords.some((v) => v.id === r.id)}
+                      height={PERSISTENT_MAP_HEIGHT}
+                      minHeight={PERSISTENT_MAP_HEIGHT}
+                      maxHeight={PERSISTENT_MAP_HEIGHT}
                     />
-                  ))}
-                </Stack>
-              )}
-            </>
+                  </Box>
+                )}
+
+                <Group justify="space-between" align="end" gap="sm">
+                  <Box>
+                    <Text fw={700}>{l.resultsTitle(restaurants.length)}</Text>
+                  </Box>
+                  <Box className="app-stat-pill">
+                    <Text size="sm" fw={600}>
+                      {sortBy === 'distance' ? l.sortDistance : l.sortRating}
+                    </Text>
+                  </Box>
+                </Group>
+
+                <Box
+                  ref={resultsViewportRef}
+                  style={{
+                    maxHeight: 'min(52dvh, 500px)',
+                    overflowY: 'auto',
+                    WebkitOverflowScrolling: 'touch',
+                    overscrollBehavior: 'contain',
+                    touchAction: 'pan-y',
+                    paddingRight: 4,
+                    paddingBottom: 6,
+                  }}
+                >
+                  <Stack gap="sm">
+                    {displayRestaurants.map((r, i) => (
+                      <RestaurantCard
+                        key={r.id}
+                        restaurant={r}
+                        locale={locale}
+                        index={i}
+                        onMarkVisited={handleMarkVisited}
+                        isVisited={visitedRecords.some((v) => v.id === r.id)}
+                        isActive={r.id === activeRestaurantId}
+                        isPicked={isRandomMode && r.id === pickedRestaurant?.id}
+                        onActivate={(restaurant) => setActiveRestaurantId(restaurant.id)}
+                        rootRef={(node) => {
+                          restaurantCardRefs.current[r.id] = node;
+                        }}
+                      />
+                    ))}
+                  </Stack>
+                </Box>
+              </Stack>
+            </Box>
           )}
 
           {/* No results */}
@@ -722,10 +1007,12 @@ function EatOutContent() {
             restaurants.length === 0 &&
             lat != null &&
             lng != null && (
-              <Center py="xl">
-                <Text c="dimmed">
-                  {allRestaurants.length > 0 && minRating > 0 ? l.noMatchFilters : l.noResults}
-                </Text>
+              <Center py="sm">
+                <Box className="app-panel-muted" p="lg">
+                  <Text c="dimmed">
+                    {allRestaurants.length > 0 && minRating > 0 ? l.noMatchFilters : l.noResults}
+                  </Text>
+                </Box>
               </Center>
             )}
         </Stack>
@@ -738,187 +1025,177 @@ function EatOutContent() {
 function useLabels(locale: Locale) {
   return useMemo(
     () => ({
-      title:
-        locale === 'zh-CN'
-          ? '\u{1F37D}\u{FE0F} \u51FA\u53BB\u5403'
-          : locale === 'ja'
-            ? '\u{1F37D}\u{FE0F} \u5916\u98DF\u3059\u308B'
-            : '\u{1F37D}\u{FE0F} Eat Out',
+      title: locale === 'zh-CN' ? '🍽️ 出去吃' : locale === 'ja' ? '🍽️ 外食する' : '🍽️ Eat Out',
       randomPick:
         locale === 'zh-CN'
-          ? '\u{1F3B2} \u968F\u673A\u63A8\u8350'
+          ? '🎲 随机推荐'
           : locale === 'ja'
-            ? '\u{1F3B2} \u30E9\u30F3\u30C0\u30E0\u304A\u3059\u3059\u3081'
-            : '\u{1F3B2} Random pick',
-      back:
-        locale === 'zh-CN'
-          ? '\u{2190} \u8FD4\u56DE'
-          : locale === 'ja'
-            ? '\u{2190} \u623B\u308B'
-            : '\u{2190} Back',
-      filter:
-        locale === 'zh-CN'
-          ? '\u7B5B\u9009'
-          : locale === 'ja'
-            ? '\u30D5\u30A3\u30EB\u30BF\u30FC'
-            : 'Filters',
+            ? '🎲 ランダムおすすめ'
+            : '🎲 Random pick',
+      waitingForLocation:
+        locale === 'zh-CN' ? '等待定位' : locale === 'ja' ? '位置待機' : 'Waiting for location',
+      providerLabel: {
+        amap: locale === 'zh-CN' ? '高德地图' : locale === 'ja' ? 'Amap' : 'Amap',
+        google:
+          locale === 'zh-CN' ? 'Google Maps' : locale === 'ja' ? 'Google Maps' : 'Google Maps',
+        hotpepper:
+          locale === 'zh-CN' ? '日本餐厅搜索' : locale === 'ja' ? '日本向け検索' : 'Japan search',
+      },
+      sourceLabel: {
+        amap: locale === 'zh-CN' ? '高德' : locale === 'ja' ? 'Amap' : 'Amap',
+        google: 'Google',
+        hotpepper: 'HotPepper',
+        hybrid:
+          locale === 'zh-CN'
+            ? 'Google + HotPepper'
+            : locale === 'ja'
+              ? 'Google + HotPepper'
+              : 'Google + HotPepper',
+      },
+      back: locale === 'zh-CN' ? '← 返回' : locale === 'ja' ? '← 戻る' : '← Back',
+      filter: locale === 'zh-CN' ? '筛选' : locale === 'ja' ? 'フィルター' : 'Filters',
       openOnly:
-        locale === 'zh-CN'
-          ? '\u4EC5\u770B\u8425\u4E1A\u4E2D'
-          : locale === 'ja'
-            ? '\u55B6\u696D\u4E2D\u306E\u307F'
-            : 'Open Now Only',
-      distance:
-        locale === 'zh-CN'
-          ? '\u641C\u7D22\u8DDD\u79BB'
-          : locale === 'ja'
-            ? '\u691C\u7D22\u8DDD\u96E2'
-            : 'Search Distance',
-      minRating:
-        locale === 'zh-CN'
-          ? '\u6700\u4F4E\u8BC4\u5206'
-          : locale === 'ja'
-            ? '\u6700\u4F4E\u8A55\u4FA1'
-            : 'Min Rating',
-      any:
-        locale === 'zh-CN' ? '\u4E0D\u9650' : locale === 'ja' ? '\u6307\u5B9A\u306A\u3057' : 'Any',
-      sortBy:
-        locale === 'zh-CN'
-          ? '\u6392\u5E8F\u65B9\u5F0F'
-          : locale === 'ja'
-            ? '\u4E26\u3073\u66FF\u3048'
-            : 'Sort by',
-      sortDistance:
-        locale === 'zh-CN'
-          ? '\u8DDD\u79BB\u4F18\u5148'
-          : locale === 'ja'
-            ? '\u8DDD\u96E2\u9806'
-            : 'Distance',
-      sortRating:
-        locale === 'zh-CN'
-          ? '\u8BC4\u5206\u4F18\u5148'
-          : locale === 'ja'
-            ? '\u8A55\u4FA1\u9806'
-            : 'Rating',
-      research:
-        locale === 'zh-CN'
-          ? '\u91CD\u65B0\u641C\u7D22'
-          : locale === 'ja'
-            ? '\u518D\u691C\u7D22'
-            : 'Re-search',
+        locale === 'zh-CN' ? '仅看营业中' : locale === 'ja' ? '営業中のみ' : 'Open Now Only',
+      openOnlyShort: locale === 'zh-CN' ? '营业中' : locale === 'ja' ? '営業中' : 'Open now',
+      allHours: locale === 'zh-CN' ? '全时段' : locale === 'ja' ? '全時間帯' : 'All hours',
+      distance: locale === 'zh-CN' ? '搜索距离' : locale === 'ja' ? '検索距離' : 'Search Distance',
+      minRating: locale === 'zh-CN' ? '最低评分' : locale === 'ja' ? '最低評価' : 'Min Rating',
+      any: locale === 'zh-CN' ? '不限' : locale === 'ja' ? '指定なし' : 'Any',
+      sortBy: locale === 'zh-CN' ? '排序方式' : locale === 'ja' ? '並び替え' : 'Sort by',
+      sortDistance: locale === 'zh-CN' ? '距离优先' : locale === 'ja' ? '距離順' : 'Distance',
+      sortRating: locale === 'zh-CN' ? '评分优先' : locale === 'ja' ? '評価順' : 'Rating',
+      research: locale === 'zh-CN' ? '重新搜索' : locale === 'ja' ? '再検索' : 'Re-search',
       searching:
         locale === 'zh-CN'
-          ? '\u6B63\u5728\u641C\u7D22\u9644\u8FD1\u9910\u5385...'
+          ? '正在搜索附近餐厅...'
           : locale === 'ja'
-            ? '\u8FD1\u304F\u306E\u30EC\u30B9\u30C8\u30E9\u30F3\u3092\u691C\u7D22\u4E2D...'
+            ? '近くのレストランを検索中...'
             : 'Searching nearby...',
       gettingLocation:
         locale === 'zh-CN'
-          ? '\u6B63\u5728\u83B7\u53D6\u4F4D\u7F6E...'
+          ? '正在获取位置...'
           : locale === 'ja'
-            ? '\u4F4D\u7F6E\u60C5\u5831\u53D6\u5F97\u4E2D...'
+            ? '位置情報取得中...'
             : 'Getting location...',
       locationError:
         locale === 'zh-CN'
-          ? '\u65E0\u6CD5\u83B7\u53D6\u4F4D\u7F6E: '
+          ? '无法获取位置: '
           : locale === 'ja'
-            ? '\u4F4D\u7F6E\u60C5\u5831\u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093: '
+            ? '位置情報を取得できません: '
             : 'Cannot get location: ',
-      retry: locale === 'zh-CN' ? '\u91CD\u8BD5' : locale === 'ja' ? '\u518D\u8A66\u884C' : 'Retry',
+      retry: locale === 'zh-CN' ? '重试' : locale === 'ja' ? '再試行' : 'Retry',
       noResults:
         locale === 'zh-CN'
-          ? '\u9644\u8FD1\u6CA1\u6709\u627E\u5230\u76F8\u5173\u9910\u5385'
+          ? '附近没有找到相关餐厅'
           : locale === 'ja'
-            ? '\u8FD1\u304F\u306B\u30EC\u30B9\u30C8\u30E9\u30F3\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093'
+            ? '近くにレストランが見つかりません'
             : 'No restaurants found nearby',
       noMatchFilters:
         locale === 'zh-CN'
-          ? '\u6CA1\u6709\u7B26\u5408\u7B5B\u9009\u6761\u4EF6\u7684\u9910\u5385\uFF0C\u8BD5\u8BD5\u964D\u4F4E\u8BC4\u5206\u8981\u6C42'
+          ? '没有符合筛选条件的餐厅，试试降低评分要求'
           : locale === 'ja'
-            ? '\u6761\u4EF6\u306B\u5408\u3046\u304A\u5E97\u304C\u3042\u308A\u307E\u305B\u3093\u3002\u8A55\u4FA1\u3092\u4E0B\u3052\u3066\u307F\u3066\u304F\u3060\u3055\u3044'
+            ? '条件に合うお店がありません。評価を下げてみてください'
             : 'No restaurants match your filters. Try lowering the minimum rating.',
       todaysPick:
         locale === 'zh-CN'
-          ? '\u{1F3B2} \u4ECA\u5929\u5C31\u5403\u8FD9\u5BB6'
+          ? '🎲 今天就吃这家'
           : locale === 'ja'
-            ? '\u{1F3B2} \u4ECA\u65E5\u306F\u3053\u3053\uFF01'
-            : '\u{1F3B2} Today\u2019s pick',
-      open:
-        locale === 'zh-CN' ? '\u8425\u4E1A\u4E2D' : locale === 'ja' ? '\u55B6\u696D\u4E2D' : 'Open',
-      closed:
-        locale === 'zh-CN' ? '\u5DF2\u6253\u70CA' : locale === 'ja' ? '\u9589\u5E97' : 'Closed',
-      navigate:
+            ? '🎲 今日はここ！'
+            : '🎲 Today’s pick',
+      open: locale === 'zh-CN' ? '营业中' : locale === 'ja' ? '営業中' : 'Open',
+      closed: locale === 'zh-CN' ? '已打烊' : locale === 'ja' ? '閉店' : 'Closed',
+      navigate: locale === 'zh-CN' ? '导航过去' : locale === 'ja' ? 'ナビで行く' : 'Navigate',
+      another: locale === 'zh-CN' ? '换一家' : locale === 'ja' ? '別のお店' : 'Another',
+      markVisited: locale === 'zh-CN' ? '标记已吃' : locale === 'ja' ? '食べた' : 'Mark visited',
+      visited: locale === 'zh-CN' ? '吃过' : locale === 'ja' ? '訪問済' : 'Visited',
+      coupon: locale === 'zh-CN' ? '优惠券' : locale === 'ja' ? 'クーポン' : 'Coupon',
+      detail: locale === 'zh-CN' ? '详情' : locale === 'ja' ? '詳細' : 'Details',
+      menu: locale === 'zh-CN' ? '菜单' : locale === 'ja' ? 'メニュー' : 'Menu',
+      course: locale === 'zh-CN' ? '套餐' : locale === 'ja' ? 'コース' : 'Course',
+      drinks: locale === 'zh-CN' ? '酒水' : locale === 'ja' ? 'ドリンク' : 'Drinks',
+      website: locale === 'zh-CN' ? '官网' : locale === 'ja' ? '公式サイト' : 'Website',
+      filterTitle:
         locale === 'zh-CN'
-          ? '\u5BFC\u822A\u8FC7\u53BB'
+          ? '筛选及排序'
           : locale === 'ja'
-            ? '\u30CA\u30D3\u3067\u884C\u304F'
-            : 'Navigate',
-      another:
+            ? 'フィルターと並び替え'
+            : 'Filters and ranking',
+      mapPreviewTitle:
+        locale === 'zh-CN' ? '先看地图' : locale === 'ja' ? 'まず地図から' : 'Map preview',
+      resultsMapTitle:
+        locale === 'zh-CN' ? '地图跟随' : locale === 'ja' ? '地図の追従' : 'Map follow mode',
+      resultsTitle: (count: number) =>
         locale === 'zh-CN'
-          ? '\u6362\u4E00\u5BB6'
+          ? `已找到 ${count} 家餐厅`
           : locale === 'ja'
-            ? '\u5225\u306E\u304A\u5E97'
-            : 'Another',
-      markVisited:
-        locale === 'zh-CN'
-          ? '\u6807\u8BB0\u5DF2\u5403'
-          : locale === 'ja'
-            ? '\u98DF\u3079\u305F'
-            : 'Mark visited',
-      visited:
-        locale === 'zh-CN' ? '\u5403\u8FC7' : locale === 'ja' ? '\u8A2A\u554F\u6E08' : 'Visited',
-      coupon:
-        locale === 'zh-CN'
-          ? '\u4F18\u60E0\u5238'
-          : locale === 'ja'
-            ? '\u30AF\u30FC\u30DD\u30F3'
-            : 'Coupon',
-      detail: locale === 'zh-CN' ? '\u8BE6\u60C5' : locale === 'ja' ? '\u8A73\u7D30' : 'Details',
-      menu:
-        locale === 'zh-CN' ? '\u83DC\u5355' : locale === 'ja' ? '\u30E1\u30CB\u30E5\u30FC' : 'Menu',
-      course:
-        locale === 'zh-CN' ? '\u5957\u9910' : locale === 'ja' ? '\u30B3\u30FC\u30B9' : 'Course',
-      drinks:
-        locale === 'zh-CN'
-          ? '\u9152\u6C34'
-          : locale === 'ja'
-            ? '\u30C9\u30EA\u30F3\u30AF'
-            : 'Drinks',
-      website:
-        locale === 'zh-CN'
-          ? '\u5B98\u7F51'
-          : locale === 'ja'
-            ? '\u516C\u5F0F\u30B5\u30A4\u30C8'
-            : 'Website',
-      viewList:
-        locale === 'zh-CN'
-          ? '\u{1F4CB} \u5217\u8868'
-          : locale === 'ja'
-            ? '\u{1F4CB} \u30EA\u30B9\u30C8'
-            : '\u{1F4CB} List',
-      viewMap:
-        locale === 'zh-CN'
-          ? '\u{1F5FA}\u{FE0F} \u5730\u56FE'
-          : locale === 'ja'
-            ? '\u{1F5FA}\u{FE0F} \u5730\u56F3'
-            : '\u{1F5FA}\u{FE0F} Map',
+            ? `${count}件のお店`
+            : `${count} restaurants found`,
+      mapLockedToPick:
+        locale === 'zh-CN' ? '随机选中' : locale === 'ja' ? 'ランダム選択' : 'Random pick',
+      viewList: locale === 'zh-CN' ? '📋 列表' : locale === 'ja' ? '📋 リスト' : '📋 List',
+      viewMap: locale === 'zh-CN' ? '🗺️ 地图' : locale === 'ja' ? '🗺️ 地図' : '🗺️ Map',
     }),
     [locale],
+  );
+}
+
+function getSourceBadgeColor(source: NonNullable<Restaurant['source']>) {
+  switch (source) {
+    case 'google':
+      return 'blue';
+    case 'hotpepper':
+      return 'pink';
+    case 'amap':
+      return 'cyan';
+    case 'hybrid':
+      return 'orange';
+  }
+}
+
+function SliderScaleLabels({
+  min,
+  max,
+  marks,
+}: {
+  min: number;
+  max: number;
+  marks: Array<{ value: number; label: string }>;
+}) {
+  return (
+    <Box style={{ position: 'relative', height: 18 }}>
+      {marks.map((mark) => {
+        const ratio = (mark.value - min) / (max - min);
+        const align =
+          ratio <= 0.05
+            ? 'translateX(0)'
+            : ratio >= 0.95
+              ? 'translateX(-100%)'
+              : 'translateX(-50%)';
+
+        return (
+          <Text
+            key={`${mark.value}-${mark.label}`}
+            size="xs"
+            c="dimmed"
+            style={{
+              position: 'absolute',
+              left: `${ratio * 100}%`,
+              transform: align,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {mark.label}
+          </Text>
+        );
+      })}
+    </Box>
   );
 }
 
 /** Best-effort check if an opening-hours line describes today */
 function isTodayLine(line: string): boolean {
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const jpDays = [
-    '\u65E5\u66DC\u65E5',
-    '\u6708\u66DC\u65E5',
-    '\u706B\u66DC\u65E5',
-    '\u6C34\u66DC\u65E5',
-    '\u6728\u66DC\u65E5',
-    '\u91D1\u66DC\u65E5',
-    '\u571F\u66DC\u65E5',
-  ];
+  const jpDays = ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日'];
   const today = new Date().getDay();
   return line.includes(days[today]) || line.includes(jpDays[today]);
 }

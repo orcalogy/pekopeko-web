@@ -11,6 +11,7 @@ const withSerwist = withSerwistInit({
 });
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: ['127.0.0.1', '::1'],
   experimental: {
     optimizePackageImports: ['@mantine/core', '@mantine/hooks'],
   },

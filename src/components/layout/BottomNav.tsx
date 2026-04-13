@@ -13,12 +13,12 @@ interface NavItem {
 const navItems: NavItem[] = [
   {
     path: '/',
-    icon: '\u{1F3B0}',
+    icon: '🎰',
     label: { 'zh-CN': '首页', ja: 'ホーム', en: 'Home' },
   },
   {
     path: '/settings',
-    icon: '\u{2699}\u{FE0F}',
+    icon: '⚙️',
     label: { 'zh-CN': '设置', ja: '設定', en: 'Settings' },
   },
 ];
@@ -41,22 +41,36 @@ export function BottomNav({ locale }: BottomNavProps) {
         width: '100%',
         maxWidth: 'var(--app-max-width)',
         zIndex: 100,
-        borderTop: '1px solid var(--mantine-color-default-border)',
-        backgroundColor: 'var(--mantine-color-body)',
-        paddingBottom: 'env(safe-area-inset-bottom)',
+        padding: '0 8px calc(env(safe-area-inset-bottom) + 8px)',
       }}
     >
-      <Group justify="space-around" py="xs" px="md">
+      <Group
+        justify="space-around"
+        py={6}
+        px={6}
+        className="app-surface"
+        style={{
+          borderRadius: 'var(--mantine-radius-md)',
+          background: 'var(--app-surface-strong)',
+          boxShadow: 'var(--app-shadow-sm)',
+        }}
+      >
         {navItems.map((item) => {
           const isActive = pathname === item.path;
           return (
             <UnstyledButton
               key={item.path}
               onClick={() => router.push(item.path)}
-              style={{ flex: 1 }}
+              style={{
+                flex: 1,
+                borderRadius: 'calc(var(--mantine-radius-md) - 2px)',
+                padding: '7px 6px',
+                background: isActive ? 'var(--app-surface-muted)' : 'transparent',
+                transition: 'background-color 160ms ease',
+              }}
             >
               <Stack align="center" gap={2}>
-                <Text size="xl">{item.icon}</Text>
+                <Text size="lg">{item.icon}</Text>
                 <Text size="xs" fw={isActive ? 700 : 400} c={isActive ? 'orange' : 'dimmed'}>
                   {item.label[locale]}
                 </Text>

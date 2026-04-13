@@ -25,11 +25,11 @@ export function getCurrentMealTime(): MealTime {
 
 export function getMealTimeEmoji(mealTime: MealTime): string {
   const emojis: Record<MealTime, string> = {
-    breakfast: '\u{1F305}', // sunrise
-    lunch: '\u{2600}\u{FE0F}', // sun
-    afternoon: '\u{2615}', // coffee
-    dinner: '\u{1F307}', // sunset
-    latenight: '\u{1F319}', // moon
+    breakfast: '🌅', // sunrise
+    lunch: '☀️', // sun
+    afternoon: '☕', // coffee
+    dinner: '🌇', // sunset
+    latenight: '🌙', // moon
   };
   return emojis[mealTime];
 }

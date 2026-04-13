@@ -11,6 +11,10 @@ interface RestaurantCardProps {
   index: number;
   onMarkVisited?: (r: Restaurant) => void;
   isVisited?: boolean;
+  isActive?: boolean;
+  isPicked?: boolean;
+  onActivate?: (restaurant: Restaurant) => void;
+  rootRef?: (node: HTMLDivElement | null) => void;
 }
 
 function formatDistance(meters: number): string {
@@ -21,82 +25,112 @@ function formatDistance(meters: number): string {
 }
 
 function renderPriceLevel(level: number): string {
-  return '\u{00A5}'.repeat(level || 1);
+  return '¥'.repeat(level || 1);
 }
 
 const openLabels: Record<Locale, string> = {
-  'zh-CN': '\u8425\u4E1A\u4E2D',
-  ja: '\u55B6\u696D\u4E2D',
+  'zh-CN': '营业中',
+  ja: '営業中',
   en: 'Open',
 };
 const closedLabels: Record<Locale, string> = {
-  'zh-CN': '\u5DF2\u6253\u70CA',
-  ja: '\u9589\u5E97',
+  'zh-CN': '已打烊',
+  ja: '閉店',
   en: 'Closed',
 };
 const navigateLabels: Record<Locale, string> = {
-  'zh-CN': '\u5BFC\u822A\u8FC7\u53BB',
-  ja: '\u30CA\u30D3\u3067\u884C\u304F',
+  'zh-CN': '导航过去',
+  ja: 'ナビで行く',
   en: 'Navigate',
 };
 
 const markVisitedLabels: Record<Locale, string> = {
-  'zh-CN': '\u6807\u8BB0\u5DF2\u5403',
-  ja: '\u98DF\u3079\u305F',
+  'zh-CN': '标记已吃',
+  ja: '食べた',
   en: 'Visited',
 };
 
 const couponLabels: Record<Locale, string> = {
-  'zh-CN': '\u4F18\u60E0\u5238',
-  ja: '\u30AF\u30FC\u30DD\u30F3',
+  'zh-CN': '优惠券',
+  ja: 'クーポン',
   en: 'Coupon',
 };
 
 const visitedLabels: Record<Locale, string> = {
-  'zh-CN': '\u5403\u8FC7',
-  ja: '\u8A2A\u554F\u6E08',
+  'zh-CN': '吃过',
+  ja: '訪問済',
   en: 'Visited',
 };
 
+const focusedLabels: Record<Locale, string> = {
+  'zh-CN': '地图聚焦',
+  ja: '地図の中心',
+  en: 'On map',
+};
+
+const pickedLabels: Record<Locale, string> = {
+  'zh-CN': '今天选中',
+  ja: '今日の候補',
+  en: "Today's pick",
+};
+
+const sourceLabels = {
+  google: { 'zh-CN': 'Google', ja: 'Google', en: 'Google' },
+  hotpepper: { 'zh-CN': 'HotPepper', ja: 'HotPepper', en: 'HotPepper' },
+  amap: { 'zh-CN': '高德', ja: 'Amap', en: 'Amap' },
+  hybrid: {
+    'zh-CN': 'Google + HotPepper',
+    ja: 'Google + HotPepper',
+    en: 'Google + HotPepper',
+  },
+} as const;
+
+const sourceColors = {
+  google: 'blue',
+  hotpepper: 'pink',
+  amap: 'cyan',
+  hybrid: 'orange',
+} as const;
+
 export const FEATURE_LABELS: Record<string, Record<Locale, string>> = {
   wifi: { 'zh-CN': 'WiFi', ja: 'WiFi', en: 'WiFi' },
-  lunch: { 'zh-CN': '\u5348\u9910', ja: '\u30E9\u30F3\u30C1', en: 'Lunch' },
-  private_room: { 'zh-CN': '\u5305\u95F4', ja: '\u500B\u5BA4', en: 'Private' },
+  lunch: { 'zh-CN': '午餐', ja: 'ランチ', en: 'Lunch' },
+  private_room: { 'zh-CN': '包间', ja: '個室', en: 'Private' },
   english: {
-    'zh-CN': '\u82F1\u8BED\u83DC\u5355',
-    ja: '\u82F1\u8A9E\u30E1\u30CB\u30E5\u30FC',
+    'zh-CN': '英语菜单',
+    ja: '英語メニュー',
     en: 'English',
   },
-  non_smoking: { 'zh-CN': '\u7981\u70DF', ja: '\u7981\u7159', en: 'No Smoke' },
-  card: { 'zh-CN': '\u53EF\u5237\u5361', ja: '\u30AB\u30FC\u30C9\u53EF', en: 'Cards' },
-  parking: { 'zh-CN': '\u505C\u8F66\u573A', ja: '\u99D0\u8ECA\u5834', en: 'Parking' },
+  non_smoking: { 'zh-CN': '禁烟', ja: '禁煙', en: 'No Smoke' },
+  card: { 'zh-CN': '可刷卡', ja: 'カード可', en: 'Cards' },
+  parking: { 'zh-CN': '停车场', ja: '駐車場', en: 'Parking' },
   barrier_free: {
-    'zh-CN': '\u65E0\u969C\u788D',
-    ja: '\u30D0\u30EA\u30A2\u30D5\u30EA\u30FC',
+    'zh-CN': '无障碍',
+    ja: 'バリアフリー',
     en: 'Accessible',
   },
-  course: { 'zh-CN': '\u5957\u9910', ja: '\u30B3\u30FC\u30B9', en: 'Course' },
+  course: { 'zh-CN': '套餐', ja: 'コース', en: 'Course' },
   free_drink: {
-    'zh-CN': '\u7545\u996E',
-    ja: '\u98F2\u307F\u653E\u984C',
+    'zh-CN': '畅饮',
+    ja: '飲み放題',
     en: 'Free Drink',
   },
   free_food: {
-    'zh-CN': '\u81EA\u52A9',
-    ja: '\u98DF\u3079\u653E\u984C',
+    'zh-CN': '自助',
+    ja: '食べ放題',
     en: 'Buffet',
   },
 };
 
 const menuLabels: Record<Locale, string> = {
-  'zh-CN': '\u83DC\u5355',
-  ja: '\u30E1\u30CB\u30E5\u30FC',
+  'zh-CN': '菜单',
+  ja: 'メニュー',
   en: 'Menu',
 };
 
 const websiteLabels: Record<Locale, string> = {
-  'zh-CN': '\u5B98\u7F51',
-  ja: '\u516C\u5F0F\u30B5\u30A4\u30C8',
+  'zh-CN': '官网',
+  ja: '公式サイト',
   en: 'Website',
 };
 
@@ -111,60 +145,119 @@ export function RestaurantCard({
   index,
   onMarkVisited,
   isVisited,
+  isActive = false,
+  isPicked = false,
+  onActivate,
+  rootRef,
 }: RestaurantCardProps) {
   return (
     <motion.div
+      ref={rootRef}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05, duration: 0.3 }}
+      onMouseEnter={onActivate ? () => onActivate(restaurant) : undefined}
+      onFocusCapture={onActivate ? () => onActivate(restaurant) : undefined}
+      style={{ scrollMarginTop: 'calc(env(safe-area-inset-top) + 320px)' }}
     >
-      <Card shadow="sm" radius="md" padding="md" withBorder>
+      <Card
+        radius="md"
+        padding="md"
+        withBorder
+        style={{
+          borderColor: isActive ? 'var(--mantine-color-orange-5)' : 'var(--app-border)',
+          boxShadow: isActive ? '0 0 0 1px var(--mantine-color-orange-5)' : 'none',
+          background: isActive ? 'var(--app-surface-muted)' : 'var(--app-surface-strong)',
+          transition: 'background-color 160ms ease, border-color 160ms ease',
+        }}
+      >
         {restaurant.photoUrl && (
           <Card.Section>
-            <Image
-              src={restaurant.photoUrl}
-              alt={restaurant.name}
-              h={160}
-              fallbackSrc=""
-              style={{ objectFit: 'cover' }}
-            />
+            <Box style={{ position: 'relative' }}>
+              <Image
+                src={restaurant.photoUrl}
+                alt={restaurant.name}
+                h={148}
+                fallbackSrc=""
+                style={{ objectFit: 'cover' }}
+              />
+              <Group
+                gap="xs"
+                wrap="wrap"
+                style={{ position: 'absolute', left: 12, right: 12, bottom: 12 }}
+              >
+                {isPicked && (
+                  <Badge color="orange" variant="filled" size="sm">
+                    {pickedLabels[locale]}
+                  </Badge>
+                )}
+                {isActive && (
+                  <Badge color="orange" variant="filled" size="sm">
+                    {focusedLabels[locale]}
+                  </Badge>
+                )}
+                {restaurant.isOpenNow !== undefined && (
+                  <Badge color={restaurant.isOpenNow ? 'green' : 'red'} variant="light" size="sm">
+                    {restaurant.isOpenNow ? openLabels[locale] : closedLabels[locale]}
+                  </Badge>
+                )}
+              </Group>
+            </Box>
           </Card.Section>
         )}
         <Stack gap="xs" mt={restaurant.photoUrl ? 'sm' : 0}>
-          <Group justify="space-between" align="start">
-            <Box style={{ flex: 1 }}>
-              <Text fw={600} size="md" lineClamp={1}>
+          <Group justify="space-between" align="start" wrap="nowrap" gap="sm">
+            <Box style={{ flex: 1, minWidth: 0 }}>
+              {!restaurant.photoUrl && (
+                <Group gap="xs" wrap="wrap" mb={8}>
+                  {isPicked && (
+                    <Badge color="orange" variant="filled" size="sm">
+                      {pickedLabels[locale]}
+                    </Badge>
+                  )}
+                  {isActive && (
+                    <Badge color="orange" variant="light" size="sm">
+                      {focusedLabels[locale]}
+                    </Badge>
+                  )}
+                  {restaurant.isOpenNow !== undefined && (
+                    <Badge color={restaurant.isOpenNow ? 'green' : 'red'} variant="light" size="sm">
+                      {restaurant.isOpenNow ? openLabels[locale] : closedLabels[locale]}
+                    </Badge>
+                  )}
+                </Group>
+              )}
+              <Text fw={700} size="md" lineClamp={1}>
                 {restaurant.name}
               </Text>
               {restaurant.cuisineType && (
-                <Text size="xs" c="orange" mt={2}>
+                <Text size="xs" c="orange" fw={600} mt={3}>
                   {restaurant.cuisineType}
                 </Text>
               )}
-              <Text size="xs" c="dimmed" lineClamp={1} mt={2}>
+              <Text size="xs" c="dimmed" lineClamp={2} mt={4}>
                 {restaurant.address}
               </Text>
               {restaurant.accessInfo && (
-                <Text size="xs" c="teal" lineClamp={1} mt={2}>
-                  {'\u{1F689}'} {restaurant.accessInfo}
+                <Text size="xs" c="teal" lineClamp={1} mt={3}>
+                  {'🚉'} {restaurant.accessInfo}
                 </Text>
               )}
             </Box>
-
-            {restaurant.isOpenNow !== undefined && (
-              <Badge color={restaurant.isOpenNow ? 'green' : 'red'} variant="light" size="sm">
-                {restaurant.isOpenNow ? openLabels[locale] : closedLabels[locale]}
-              </Badge>
-            )}
           </Group>
 
-          <Group gap="sm">
+          <Group gap="xs" wrap="wrap">
+            {restaurant.source && (
+              <Badge variant="light" size="sm" color={sourceColors[restaurant.source]}>
+                {sourceLabels[restaurant.source][locale]}
+              </Badge>
+            )}
             <Badge variant="outline" size="sm" color="blue">
               {formatDistance(restaurant.distance)}
             </Badge>
             {restaurant.rating && (
               <Badge variant="light" size="sm" color="yellow">
-                {'\u{2B50}'} {restaurant.rating.toFixed(1)}
+                {'⭐'} {restaurant.rating.toFixed(1)}
               </Badge>
             )}
             {restaurant.priceLevel && (
@@ -179,7 +272,7 @@ export function RestaurantCard({
             )}
             {isVisited && (
               <Badge variant="light" size="sm" color="grape">
-                {'\u{2705}'} {visitedLabels[locale]}
+                {'✅'} {visitedLabels[locale]}
               </Badge>
             )}
           </Group>
@@ -197,7 +290,7 @@ export function RestaurantCard({
 
           {/* Opening hours */}
           {restaurant.openingHours && restaurant.openingHours.length > 0 && (
-            <Box>
+            <Box className="app-panel-muted" p="xs">
               <Text size="xs" c="dimmed">
                 {restaurant.openingHours.length === 1
                   ? restaurant.openingHours[0]
@@ -216,13 +309,13 @@ export function RestaurantCard({
               href={`tel:${restaurant.phone}`}
               style={{ textDecoration: 'none' }}
             >
-              {'\u{1F4DE}'} {restaurant.phone}
+              {'📞'} {restaurant.phone}
             </Text>
           )}
 
           {/* Menu links */}
           {(restaurant.menuUrl || restaurant.websiteUrl) && (
-            <Group gap="xs">
+            <Group gap="xs" wrap="wrap">
               {restaurant.menuUrl && (
                 <Button
                   variant="light"
@@ -234,7 +327,7 @@ export function RestaurantCard({
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  {'\u{1F4CB}'} {menuLabels[locale]}
+                  {'📋'} {menuLabels[locale]}
                 </Button>
               )}
               {restaurant.detailUrl?.includes('hotpepper.jp') && (
@@ -249,11 +342,7 @@ export function RestaurantCard({
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    {locale === 'zh-CN'
-                      ? '\u5957\u9910'
-                      : locale === 'ja'
-                        ? '\u30B3\u30FC\u30B9'
-                        : 'Course'}
+                    {locale === 'zh-CN' ? '套餐' : locale === 'ja' ? 'コース' : 'Course'}
                   </Button>
                   <Button
                     variant="subtle"
@@ -265,11 +354,7 @@ export function RestaurantCard({
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    {locale === 'zh-CN'
-                      ? '\u9152\u6C34'
-                      : locale === 'ja'
-                        ? '\u30C9\u30EA\u30F3\u30AF'
-                        : 'Drinks'}
+                    {locale === 'zh-CN' ? '酒水' : locale === 'ja' ? 'ドリンク' : 'Drinks'}
                   </Button>
                 </>
               )}
@@ -290,7 +375,7 @@ export function RestaurantCard({
             </Group>
           )}
 
-          <Group gap="xs">
+          <Group gap="xs" align="stretch" wrap="wrap">
             <Button
               variant="light"
               color="orange"
@@ -302,7 +387,7 @@ export function RestaurantCard({
               rel="noopener noreferrer"
               style={{ flex: 1 }}
             >
-              {'\u{1F4CD}'} {navigateLabels[locale]}
+              {'📍'} {navigateLabels[locale]}
             </Button>
             {onMarkVisited && (
               <Button
@@ -312,7 +397,7 @@ export function RestaurantCard({
                 radius="xl"
                 onClick={() => onMarkVisited(restaurant)}
               >
-                {'\u{1F37D}\u{FE0F}'} {markVisitedLabels[locale]}
+                {'🍽️'} {markVisitedLabels[locale]}
               </Button>
             )}
             {restaurant.couponUrl && (
@@ -326,7 +411,7 @@ export function RestaurantCard({
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                {'\u{1F3AB}'} {couponLabels[locale]}
+                {'🎫'} {couponLabels[locale]}
               </Button>
             )}
           </Group>
@@ -339,15 +424,7 @@ export function RestaurantCard({
 /** Best-effort check if an opening-hours line describes today */
 function isTodayLine(line: string): boolean {
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const jpDays = [
-    '\u65E5\u66DC\u65E5',
-    '\u6708\u66DC\u65E5',
-    '\u706B\u66DC\u65E5',
-    '\u6C34\u66DC\u65E5',
-    '\u6728\u66DC\u65E5',
-    '\u91D1\u66DC\u65E5',
-    '\u571F\u66DC\u65E5',
-  ];
+  const jpDays = ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日'];
   const today = new Date().getDay();
   return line.includes(days[today]) || line.includes(jpDays[today]);
 }

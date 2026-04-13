@@ -8,8 +8,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const locale = usePreferences((s) => s.locale);
 
   return (
-    <Box>
-      <Box pb={70}>{children}</Box>
+    <Box className="app-page-shell">
+      <Box pb={76}>{children}</Box>
       <BottomNav locale={locale} />
     </Box>
   );

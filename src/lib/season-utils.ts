@@ -30,10 +30,10 @@ export function getCurrentSeason(lat?: number | null): Season {
 
 export function getSeasonEmoji(season: Season): string {
   const emojis: Record<Season, string> = {
-    spring: '\u{1F338}', // cherry blossom
-    summer: '\u{1F33B}', // sunflower
-    autumn: '\u{1F341}', // maple leaf
-    winter: '\u{2744}\u{FE0F}', // snowflake
+    spring: '🌸', // cherry blossom
+    summer: '🌻', // sunflower
+    autumn: '🍁', // maple leaf
+    winter: '❄️', // snowflake
   };
   return emojis[season];
 }

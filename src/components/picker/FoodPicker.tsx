@@ -123,32 +123,6 @@ export function FoodPicker({ candidates, locale, picking, onResult, onPickEnd }:
           overflow: 'hidden',
         }}
       >
-        {/* Gradient masks top/bottom */}
-        <Box
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            height: ITEM_HEIGHT * 2,
-            background: 'linear-gradient(to bottom, var(--mantine-color-body), transparent)',
-            zIndex: 2,
-            pointerEvents: 'none',
-          }}
-        />
-        <Box
-          style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: ITEM_HEIGHT * 2,
-            background: 'linear-gradient(to top, var(--mantine-color-body), transparent)',
-            zIndex: 2,
-            pointerEvents: 'none',
-          }}
-        />
-
         {/* Center highlight bar */}
         <Box
           style={{
@@ -171,8 +145,9 @@ export function FoodPicker({ candidates, locale, picking, onResult, onPickEnd }:
           }}
         />
 
-        {/* Scrolling items */}
+        {/* Scrolling items — z-index above highlight bar */}
         <motion.div
+          style={{ position: 'relative', zIndex: 2 }}
           animate={{
             y: -(centerIdx * ITEM_HEIGHT) + ITEM_HEIGHT * Math.floor(VISIBLE_ITEMS / 2),
           }}
@@ -215,9 +190,9 @@ export function FoodPicker({ candidates, locale, picking, onResult, onPickEnd }:
       <Box py={6} px="md" style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}>
         <Text size="xs" c="dimmed" ta="center">
           {locale === 'zh-CN'
-            ? `${candidates.length} \u9053\u5019\u9009\u83DC\u54C1\u4E2D\u968F\u673A`
+            ? `${candidates.length} 道候选菜品中随机`
             : locale === 'ja'
-              ? `${candidates.length} \u54C1\u306E\u5019\u88DC\u304B\u3089\u30E9\u30F3\u30C0\u30E0`
+              ? `${candidates.length} 品の候補からランダム`
               : `Random from ${candidates.length} candidates`}
         </Text>
       </Box>

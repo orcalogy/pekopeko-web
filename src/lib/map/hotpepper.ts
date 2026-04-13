@@ -175,6 +175,7 @@ export async function searchHotpepperNearby(
       budgetText: shop.budget?.average || shop.budget?.name || undefined,
       features: extractFeatures(shop),
       menuUrl: shop.urls?.pc ? `${shop.urls.pc.replace(/\/$/, '')}/food/` : undefined,
+      source: 'hotpepper',
     } satisfies Restaurant;
   });
 }

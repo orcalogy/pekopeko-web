@@ -13,11 +13,11 @@ import {
   Text,
   Title,
   UnstyledButton,
-  useMantineTheme,
 } from '@mantine/core';
 import { AnimatePresence, motion } from 'framer-motion';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MealTimeIndicator } from '@/components/filters/MealTimeIndicator';
 import { MoodSelector } from '@/components/filters/MoodSelector';
 import { SeasonBadge } from '@/components/filters/SeasonBadge';
@@ -34,11 +34,45 @@ import { useLocation } from '@/stores/location';
 import { usePreferences } from '@/stores/preferences';
 import type { Food } from '@/types/food';
 
+const LOCATION_MAX_AGE_MS = 30 * 60 * 1000;
+const CATEGORY_ICONS: Record<string, string> = {
+  chinese: '🥢',
+  japanese: '🍣',
+  korean: '🥘',
+  western: '🍽️',
+  'southeast-asian': '🌿',
+  fastfood: '🍔',
+  hotpot: '🍲',
+  bbq: '🔥',
+  noodles: '🍜',
+  dessert: '🍰',
+  cafe: '☕',
+  seafood: '🦞',
+};
+
+const RestaurantMap = dynamic(() => import('../components/restaurant/RestaurantMap'), {
+  ssr: false,
+  loading: () => (
+    <Center py="xl">
+      <Text size="sm" c="dimmed">
+        Loading map...
+      </Text>
+    </Center>
+  ),
+});
+
 export default function Home() {
   const locale = usePreferences((s) => s.locale);
   const maxSpicy = usePreferences((s) => s.maxSpicy);
   const excludedFoodIds = usePreferences((s) => s.excludedFoodIds);
-  const lat = useLocation((s) => s.lat);
+  const {
+    lat,
+    lng,
+    locatedAt,
+    loading: locationLoading,
+    error: locationError,
+    requestLocation,
+  } = useLocation();
 
   const {
     mode,
@@ -53,11 +87,14 @@ export default function Home() {
     history,
   } = useAppState();
 
-  const theme = useMantineTheme();
   const [showResult, setShowResult] = useState(false);
+  const autoLocationRequestDone = useRef(false);
 
   const mealTime = getCurrentMealTime();
   const season = getCurrentSeason(lat);
+  const needsFreshLocation =
+    mode === 'eatOut' &&
+    (lat == null || lng == null || !locatedAt || Date.now() - locatedAt > LOCATION_MAX_AGE_MS);
 
   // Filtered food candidates for cook mode
   const candidates = useMemo(() => {
@@ -111,187 +148,226 @@ export default function Home() {
     router.push('/eat-out?random=true');
   }, [router]);
 
+  useEffect(() => {
+    if (mode !== 'eatOut') {
+      autoLocationRequestDone.current = false;
+      return;
+    }
+
+    if (!needsFreshLocation) {
+      autoLocationRequestDone.current = false;
+      return;
+    }
+
+    if (autoLocationRequestDone.current) return;
+
+    autoLocationRequestDone.current = true;
+    requestLocation();
+  }, [mode, needsFreshLocation, requestLocation]);
+
   return (
     <AppShell>
-      <Container py="md" px="md">
-        <Stack gap="md" align="center">
-          {/* Header */}
-          <Box ta="center" mt="sm">
-            <Title order={1} size="h2" fw={800}>
-              {locale === 'zh-CN'
-                ? '\u4ECA\u5929\u5403\u4EC0\u4E48'
-                : locale === 'ja'
-                  ? '\u4ECA\u65E5\u4F55\u98DF\u3079\u308B\uFF1F'
-                  : 'pekopeko'}
-            </Title>
-            <Text c="dimmed" size="sm" mt={4}>
-              {locale === 'zh-CN'
-                ? '\u89E3\u51B3\u4F60\u7684\u9009\u62E9\u56F0\u96BE\u75C7'
-                : locale === 'ja'
-                  ? '\u9078\u629E\u969C\u5BB3\u3092\u89E3\u6C7A\u3057\u3088\u3046'
-                  : 'Solve your food choice paralysis'}
-            </Text>
+      <Container py="sm" px="sm">
+        <Stack gap="sm" w="100%">
+          <Box className="app-hero-card" p="md">
+            <Stack gap="sm">
+              <Box style={{ flex: 1, minWidth: 0 }}>
+                <Title order={1} size="h2" fw={800} style={{ letterSpacing: '-0.03em' }}>
+                  {locale === 'zh-CN' ? '饿死啦' : locale === 'ja' ? 'ぺこぺこ！' : 'pekopeko'}
+                </Title>
+              </Box>
+
+              <Group gap="xs" wrap="wrap">
+                <MealTimeIndicator locale={locale} />
+                <SeasonBadge locale={locale} lat={lat} />
+              </Group>
+
+              <Box className="app-panel-muted" p={4}>
+                <SegmentedControl
+                  value={mode}
+                  onChange={(v) => {
+                    setMode(v as 'cook' | 'eatOut');
+                    setShowResult(false);
+                    setResult(null);
+                    setSpinning(false);
+                  }}
+                  data={[
+                    {
+                      value: 'eatOut',
+                      label:
+                        locale === 'zh-CN'
+                          ? '🍽️ 出去吃'
+                          : locale === 'ja'
+                            ? '🍽️ 外食する'
+                            : '🍽️ Eat Out',
+                    },
+                    {
+                      value: 'cook',
+                      label:
+                        locale === 'zh-CN'
+                          ? '🍳 自己做'
+                          : locale === 'ja'
+                            ? '🍳 自炊する'
+                            : '🍳 Cook',
+                    },
+                  ]}
+                  radius="xl"
+                  size="sm"
+                  fullWidth
+                />
+              </Box>
+            </Stack>
           </Box>
-
-          {/* Context Badges */}
-          <Group gap="xs" justify="center">
-            <MealTimeIndicator locale={locale} />
-            <SeasonBadge locale={locale} lat={lat} />
-          </Group>
-
-          {/* Mode Switch */}
-          <SegmentedControl
-            value={mode}
-            onChange={(v) => {
-              setMode(v as 'cook' | 'eatOut');
-              setShowResult(false);
-              setResult(null);
-              setSpinning(false);
-            }}
-            data={[
-              {
-                value: 'cook',
-                label:
-                  locale === 'zh-CN'
-                    ? '\u{1F373} \u81EA\u5DF1\u505A'
-                    : locale === 'ja'
-                      ? '\u{1F373} \u81EA\u7082\u3059\u308B'
-                      : '\u{1F373} Cook',
-              },
-              {
-                value: 'eatOut',
-                label:
-                  locale === 'zh-CN'
-                    ? '\u{1F37D}\u{FE0F} \u51FA\u53BB\u5403'
-                    : locale === 'ja'
-                      ? '\u{1F37D}\u{FE0F} \u5916\u98DF\u3059\u308B'
-                      : '\u{1F37D}\u{FE0F} Eat Out',
-              },
-            ]}
-            radius="xl"
-            size="md"
-            fullWidth
-            style={{ maxWidth: 300 }}
-          />
 
           {/* ===== Cook Mode ===== */}
           {mode === 'cook' && (
-            <>
-              <MoodSelector value={selectedMood} onChange={setMood} locale={locale} />
-
-              <Text size="sm" c="dimmed">
-                {locale === 'zh-CN'
-                  ? `\u5DF2\u4E3A\u4F60\u7B5B\u9009\u51FA ${candidates.length} \u9053\u83DC`
-                  : locale === 'ja'
-                    ? `${candidates.length} \u54C1\u304C\u5019\u88DC\u306B\u9078\u3070\u308C\u307E\u3057\u305F`
-                    : `${candidates.length} dishes match your filters`}
-              </Text>
-
-              {/* Picker Animation */}
-              <AnimatePresence mode="wait">
-                {!showResult ? (
-                  <motion.div
-                    key="picker"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    transition={{ duration: 0.3 }}
-                    style={{ width: '100%', maxWidth: 360, margin: '0 auto' }}
-                  >
-                    <FoodPicker
-                      candidates={candidates}
-                      locale={locale}
-                      picking={isSpinning}
-                      onResult={handleResult}
-                      onPickEnd={handlePickEnd}
-                    />
-                  </motion.div>
-                ) : null}
-              </AnimatePresence>
-
-              {/* Pick Button */}
-              {!showResult && (
-                <Center>
-                  <Button
-                    size="xl"
-                    radius="xl"
-                    onClick={handlePick}
-                    loading={isSpinning}
-                    disabled={isSpinning || candidates.length === 0}
-                    color="orange"
-                    variant="filled"
-                    style={{ minWidth: 180 }}
-                  >
-                    {isSpinning
-                      ? locale === 'zh-CN'
-                        ? '\u9009\u9009\u9009...'
+            <Stack gap="sm">
+              <Box className="app-panel" p="sm">
+                <Stack gap="sm">
+                  <Box>
+                    <Text fw={700} size="md">
+                      {locale === 'zh-CN'
+                        ? '先缩小一下选项'
                         : locale === 'ja'
-                          ? '\u9078\u3093\u3067\u308B...'
-                          : 'Picking...'
-                      : locale === 'zh-CN'
-                        ? '\u{1F3B2} \u5E2E\u6211\u9009\uFF01'
+                          ? 'まずは候補を絞り込む'
+                          : 'Narrow down the options first'}
+                    </Text>
+                    <Text size="xs" c="dimmed" mt={3}>
+                      {locale === 'zh-CN'
+                        ? `已为你筛选出 ${candidates.length} 道菜`
                         : locale === 'ja'
-                          ? '\u{1F3B2} \u9078\u3093\u3067\uFF01'
-                          : '\u{1F3B2} Pick for me!'}
-                  </Button>
-                </Center>
-              )}
+                          ? `${candidates.length} 品が候補に選ばれています`
+                          : `${candidates.length} dishes currently match your filters`}
+                    </Text>
+                  </Box>
+                  <MoodSelector value={selectedMood} onChange={setMood} locale={locale} />
+                </Stack>
+              </Box>
 
-              {/* Result Card */}
-              <AnimatePresence>
-                {showResult && currentResult && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    style={{ width: '100%' }}
-                  >
-                    <FoodCard
-                      food={currentResult}
-                      locale={locale}
-                      showCookInfo
-                      currentSeason={season}
-                    />
-                    <Group justify="center" mt="md" gap="sm">
-                      <Button variant="light" color="orange" radius="xl" onClick={handleRespin}>
+              <Box className="app-panel" p="sm">
+                <Stack gap="sm">
+                  <Group justify="space-between" align="end" gap="sm">
+                    <Box>
+                      <Text fw={700} size="md">
                         {locale === 'zh-CN'
-                          ? '\u{1F504} \u6362\u4E00\u4E2A'
+                          ? '帮你快速拿主意'
                           : locale === 'ja'
-                            ? '\u{1F504} \u3082\u3046\u4E00\u56DE'
-                            : '\u{1F504} Pick Again'}
-                      </Button>
-                      <Button
-                        variant="subtle"
-                        color="gray"
-                        radius="xl"
-                        onClick={() => {
-                          if (currentResult) {
-                            usePreferences.getState().excludeFood(currentResult.id);
-                          }
-                          handleRespin();
-                        }}
+                            ? 'ひと押しで決める'
+                            : 'Let the app decide quickly'}
+                      </Text>
+                    </Box>
+                    <Box className="app-stat-pill">
+                      <Text size="sm" fw={600}>
+                        {locale === 'zh-CN'
+                          ? `${candidates.length} 道候选`
+                          : locale === 'ja'
+                            ? `${candidates.length}候補`
+                            : `${candidates.length} candidates`}
+                      </Text>
+                    </Box>
+                  </Group>
+
+                  <AnimatePresence mode="wait">
+                    {!showResult ? (
+                      <motion.div
+                        key="picker"
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -20 }}
+                        transition={{ duration: 0.3 }}
+                        style={{ width: '100%' }}
                       >
-                        {locale === 'zh-CN'
-                          ? '\u{1F6AB} \u4E0D\u8981\u8FD9\u4E2A'
-                          : locale === 'ja'
-                            ? '\u{1F6AB} \u3053\u308C\u3058\u3083\u306A\u3044'
-                            : '\u{1F6AB} Not This'}
-                      </Button>
-                    </Group>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                        <FoodPicker
+                          candidates={candidates}
+                          locale={locale}
+                          picking={isSpinning}
+                          onResult={handleResult}
+                          onPickEnd={handlePickEnd}
+                        />
+                      </motion.div>
+                    ) : null}
+                  </AnimatePresence>
 
-              {/* History */}
+                  {!showResult && (
+                    <Button
+                      size="lg"
+                      radius="xl"
+                      onClick={handlePick}
+                      loading={isSpinning}
+                      disabled={isSpinning || candidates.length === 0}
+                      color="orange"
+                      variant="filled"
+                      fullWidth
+                    >
+                      {isSpinning
+                        ? locale === 'zh-CN'
+                          ? '选选选...'
+                          : locale === 'ja'
+                            ? '選んでる...'
+                            : 'Picking...'
+                        : locale === 'zh-CN'
+                          ? '🎲 帮我选！'
+                          : locale === 'ja'
+                            ? '🎲 選んで！'
+                            : '🎲 Pick for me!'}
+                    </Button>
+                  )}
+
+                  <AnimatePresence>
+                    {showResult && currentResult && (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.9 }}
+                        style={{ width: '100%' }}
+                      >
+                        <FoodCard
+                          food={currentResult}
+                          locale={locale}
+                          showCookInfo
+                          currentSeason={season}
+                        />
+                        <Group justify="center" mt="sm" gap="sm">
+                          <Button variant="light" color="orange" radius="xl" onClick={handleRespin}>
+                            {locale === 'zh-CN'
+                              ? '🔄 换一个'
+                              : locale === 'ja'
+                                ? '🔄 もう一回'
+                                : '🔄 Pick Again'}
+                          </Button>
+                          <Button
+                            variant="subtle"
+                            color="gray"
+                            radius="xl"
+                            onClick={() => {
+                              if (currentResult) {
+                                usePreferences.getState().excludeFood(currentResult.id);
+                              }
+                              handleRespin();
+                            }}
+                          >
+                            {locale === 'zh-CN'
+                              ? '🚫 不要这个'
+                              : locale === 'ja'
+                                ? '🚫 これじゃない'
+                                : '🚫 Not This'}
+                          </Button>
+                        </Group>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </Stack>
+              </Box>
+
               {history.length > 0 && !isSpinning && (
-                <Box w="100%" mt="md">
+                <Box className="app-panel" p="sm" w="100%">
                   <Divider
                     label={
                       locale === 'zh-CN'
-                        ? '\u{1F4DC} \u6700\u8FD1\u63A8\u8350'
+                        ? '📜 最近推荐'
                         : locale === 'ja'
-                          ? '\u{1F4DC} \u6700\u8FD1\u306E\u5C65\u6B74'
-                          : '\u{1F4DC} Recent'
+                          ? '📜 最近の履歴'
+                          : '📜 Recent'
                     }
                     labelPosition="center"
                     mb="sm"
@@ -315,58 +391,152 @@ export default function Home() {
                   </Group>
                 </Box>
               )}
-            </>
+            </Stack>
           )}
 
           {/* ===== Eat Out Mode ===== */}
           {mode === 'eatOut' && (
-            <>
-              <Text size="sm" c="dimmed" ta="center">
-                {locale === 'zh-CN'
-                  ? '\u9009\u4E00\u79CD\u83DC\u7CFB\uFF0C\u5E2E\u4F60\u627E\u9644\u8FD1\u7684\u9910\u5385'
-                  : locale === 'ja'
-                    ? '\u30B8\u30E3\u30F3\u30EB\u3092\u9078\u3093\u3067\u3001\u8FD1\u304F\u306E\u304A\u5E97\u3092\u63A2\u3057\u307E\u3059'
-                    : 'Pick a cuisine to find nearby restaurants'}
-              </Text>
+            <Stack gap="sm" w="100%">
+              <Box className="app-panel" p="sm">
+                <Stack gap="sm">
+                  <Box>
+                    <Title order={3} size="h4" fw={800}>
+                      {locale === 'zh-CN'
+                        ? '先看你周围有什么'
+                        : locale === 'ja'
+                          ? 'まずは近くのお店から'
+                          : 'Start with what is around you'}
+                    </Title>
+                  </Box>
 
-              {/* Random restaurant button */}
-              <Button
-                size="lg"
-                radius="xl"
-                color="orange"
-                variant="filled"
-                onClick={handleRandomRestaurant}
-                style={{ minWidth: 200 }}
-              >
-                {locale === 'zh-CN'
-                  ? '\u{1F3B2} \u968F\u4FBF\u5403\u70B9'
-                  : locale === 'ja'
-                    ? '\u{1F3B2} \u304A\u307E\u304B\u305B'
-                    : '\u{1F3B2} Surprise me!'}
-              </Button>
+                  {locationLoading && lat == null && lng == null && (
+                    <Center py="sm">
+                      <Stack gap="xs" align="center">
+                        <Text size="sm" c="dimmed" ta="center">
+                          {locale === 'zh-CN'
+                            ? '正在获取你的位置...'
+                            : locale === 'ja'
+                              ? '現在地を取得中...'
+                              : 'Getting your location...'}
+                        </Text>
+                      </Stack>
+                    </Center>
+                  )}
 
-              {/* Category Grid */}
-              <SimpleGrid cols={{ base: 2, xs: 3 }} spacing="sm" w="100%">
-                {categories.map((cat) => (
-                  <UnstyledButton
-                    key={cat.id}
-                    onClick={() => handleCategoryPick(cat.id)}
-                    style={{
-                      padding: '16px 12px',
-                      borderRadius: theme.radius.md,
-                      border: '1px solid var(--mantine-color-default-border)',
-                      background: 'var(--mantine-color-body)',
-                      textAlign: 'center',
-                      transition: 'all 0.15s ease',
-                    }}
+                  {locationError && lat == null && lng == null && (
+                    <Stack gap="xs" align="center" w="100%" className="app-panel-muted" p="sm">
+                      <Text size="sm" c="red" ta="center">
+                        {locale === 'zh-CN'
+                          ? '无法获取当前位置'
+                          : locale === 'ja'
+                            ? '現在地を取得できません'
+                            : 'Unable to get your current location'}
+                      </Text>
+                      <Button
+                        variant="light"
+                        color="orange"
+                        radius="xl"
+                        size="sm"
+                        onClick={requestLocation}
+                      >
+                        {locale === 'zh-CN' ? '再试一次' : locale === 'ja' ? 'もう一度' : 'Retry'}
+                      </Button>
+                    </Stack>
+                  )}
+
+                  {lat != null && lng != null && (
+                    <Box className="app-map-frame" w="100%">
+                      <Box px="sm" py="xs" style={{ borderBottom: '1px solid var(--app-border)' }}>
+                        <Text fw={700} size="sm">
+                          {locale === 'zh-CN'
+                            ? '当前位置'
+                            : locale === 'ja'
+                              ? '現在地'
+                              : 'Current location'}
+                        </Text>
+                      </Box>
+                      <RestaurantMap
+                        restaurants={[]}
+                        userLat={lat}
+                        userLng={lng}
+                        locale={locale}
+                        height={216}
+                        minHeight={216}
+                        maxHeight={216}
+                      />
+                    </Box>
+                  )}
+
+                  <Button
+                    size="md"
+                    radius="xl"
+                    color="orange"
+                    variant="filled"
+                    onClick={handleRandomRestaurant}
+                    fullWidth
                   >
-                    <Text size="lg" fw={600} style={{ color: cat.color }}>
-                      {cat.name[locale]}
+                    {locale === 'zh-CN'
+                      ? '🎲 随便吃点'
+                      : locale === 'ja'
+                        ? '🎲 おまかせ'
+                        : '🎲 Surprise me!'}
+                  </Button>
+                </Stack>
+              </Box>
+
+              <Box className="app-panel" p="sm">
+                <Group justify="space-between" align="end" mb="sm">
+                  <Box>
+                    <Text fw={700} size="md">
+                      {locale === 'zh-CN'
+                        ? '按想吃的类型快速开始'
+                        : locale === 'ja'
+                          ? '気分のジャンルからすぐ始める'
+                          : 'Jump in by cuisine'}
                     </Text>
-                  </UnstyledButton>
-                ))}
-              </SimpleGrid>
-            </>
+                  </Box>
+                  <Text size="xs" c="dimmed">
+                    {locale === 'zh-CN'
+                      ? `${categories.length} 种`
+                      : locale === 'ja'
+                        ? `${categories.length}種`
+                        : `${categories.length} types`}
+                  </Text>
+                </Group>
+
+                <SimpleGrid cols={{ base: 2, xs: 3 }} spacing="sm" w="100%">
+                  {categories.map((cat) => (
+                    <UnstyledButton
+                      key={cat.id}
+                      onClick={() => handleCategoryPick(cat.id)}
+                      style={{
+                        padding: '14px 12px',
+                        minHeight: 96,
+                        borderRadius: 'var(--mantine-radius-md)',
+                        border: '1px solid var(--app-border)',
+                        background: 'var(--app-surface-muted)',
+                        textAlign: 'left',
+                        transition: 'background-color 160ms ease, border-color 160ms ease',
+                      }}
+                    >
+                      <Stack gap={6}>
+                        <Text size="lg">{CATEGORY_ICONS[cat.id] ?? '🍽️'}</Text>
+                        <Text size="md" fw={700}>
+                          {cat.name[locale]}
+                        </Text>
+                        <Text size="xs" c="dimmed">
+                          {locale === 'zh-CN'
+                            ? '查看附近选项'
+                            : locale === 'ja'
+                              ? '近くのお店を探す'
+                              : 'See nearby options'}
+                        </Text>
+                      </Stack>
+                    </UnstyledButton>
+                  ))}
+                </SimpleGrid>
+              </Box>
+            </Stack>
           )}
         </Stack>
       </Container>

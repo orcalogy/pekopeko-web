@@ -36,6 +36,7 @@ export function mergeResults(google: Restaurant[], hotpepper: Restaurant[]): Res
         // Menu: prefer HotPepper's food page, keep Google's website as fallback
         menuUrl: hpMatch.menuUrl || g.menuUrl,
         websiteUrl: g.websiteUrl,
+        source: 'hybrid',
       });
     } else {
       merged.push(g);

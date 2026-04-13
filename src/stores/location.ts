@@ -44,8 +44,34 @@ export const useLocation = create<LocationState>()(
 
         set({ loading: true, error: null });
 
-        navigator.geolocation.getCurrentPosition(
-          async (position) => {
+        const getPosition = (options: PositionOptions) =>
+          new Promise<GeolocationPosition>((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, options);
+          });
+
+        const resolveLocation = async () => {
+          try {
+            let position: GeolocationPosition;
+
+            try {
+              position = await getPosition({
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 5 * 60 * 1000,
+              });
+            } catch (error) {
+              const geoError = error as GeolocationPositionError;
+              if (geoError.code !== 3) {
+                throw geoError;
+              }
+
+              position = await getPosition({
+                enableHighAccuracy: false,
+                timeout: 15000,
+                maximumAge: 30 * 60 * 1000,
+              });
+            }
+
             const { latitude, longitude } = position.coords;
             set({
               lat: latitude,
@@ -69,12 +95,18 @@ export const useLocation = create<LocationState>()(
               // Default to google if detection fails
               set({ country: 'UNKNOWN', provider: 'google' });
             }
-          },
-          (err) => {
-            set({ error: err.message, loading: false });
-          },
-          { enableHighAccuracy: true, timeout: 10000 },
-        );
+          } catch (error) {
+            const message =
+              error instanceof GeolocationPositionError
+                ? error.message
+                : error instanceof Error
+                  ? error.message
+                  : 'Unable to get location';
+            set({ error: message, loading: false });
+          }
+        };
+
+        void resolveLocation();
       },
     }),
     {

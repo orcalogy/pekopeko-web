@@ -37,6 +37,8 @@ export interface Restaurant {
   menuUrl?: string;
   /** Restaurant's own website */
   websiteUrl?: string;
+  /** Provider used to fetch this result or enrich it */
+  source?: 'google' | 'hotpepper' | 'amap' | 'hybrid';
 }
 
 export type MapProviderType = 'amap' | 'google' | 'hotpepper';

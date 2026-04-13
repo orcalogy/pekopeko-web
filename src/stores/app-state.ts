@@ -22,7 +22,7 @@ interface AppState {
 export const useAppState = create<AppState>()(
   persist(
     (set) => ({
-      mode: 'cook',
+      mode: 'eatOut',
       selectedMood: null,
       currentResult: null,
       history: [],
@@ -42,6 +42,17 @@ export const useAppState = create<AppState>()(
     }),
     {
       name: 'pekopeko-state',
+      version: 1,
+      migrate: (persistedState) => {
+        const state = persistedState as Partial<AppState> | undefined;
+        return {
+          mode: 'eatOut' as AppMode,
+          selectedMood: state?.selectedMood ?? null,
+          currentResult: state?.currentResult ?? null,
+          history: state?.history ?? [],
+          isSpinning: false,
+        };
+      },
       partialize: (state) => ({ mode: state.mode, history: state.history }),
     },
   ),

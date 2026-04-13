@@ -1,9 +1,36 @@
 @import "@mantine/core/styles.css";
 @import "@mantine/notifications/styles.css";
 @import "@mantine/carousel/styles.css";
+@import "leaflet/dist/leaflet.css";
 
 :root {
   --app-max-width: 480px;
+}
+
+[data-mantine-color-scheme="light"] {
+  --app-backdrop: #fffaf6;
+  --app-surface: rgba(255, 255, 255, 0.82);
+  --app-surface-strong: rgba(255, 255, 255, 0.94);
+  --app-surface-muted: rgba(248, 249, 250, 0.82);
+  --app-border: rgba(15, 23, 42, 0.08);
+  --app-border-strong: rgba(15, 23, 42, 0.12);
+  --app-shadow-sm: 0 8px 24px rgba(15, 23, 42, 0.07);
+  --app-shadow-md: 0 18px 40px rgba(15, 23, 42, 0.1);
+  --app-shadow-lg: 0 24px 56px rgba(15, 23, 42, 0.14);
+  --app-nav-bg: rgba(255, 255, 255, 0.78);
+}
+
+[data-mantine-color-scheme="dark"] {
+  --app-backdrop: #131416;
+  --app-surface: rgba(24, 26, 30, 0.82);
+  --app-surface-strong: rgba(29, 31, 35, 0.94);
+  --app-surface-muted: rgba(37, 39, 44, 0.72);
+  --app-border: rgba(255, 255, 255, 0.08);
+  --app-border-strong: rgba(255, 255, 255, 0.14);
+  --app-shadow-sm: 0 8px 24px rgba(0, 0, 0, 0.22);
+  --app-shadow-md: 0 18px 42px rgba(0, 0, 0, 0.28);
+  --app-shadow-lg: 0 26px 64px rgba(0, 0, 0, 0.34);
+  --app-nav-bg: rgba(24, 26, 30, 0.78);
 }
 
 html,
@@ -11,6 +38,12 @@ body {
   margin: 0;
   padding: 0;
   overflow-x: hidden;
+  min-height: 100%;
+}
+
+body {
+  background: var(--app-backdrop);
+  color: var(--mantine-color-text);
 }
 
 /* Mobile-first: center the app content */
@@ -18,4 +51,55 @@ body {
   max-width: var(--app-max-width);
   margin: 0 auto;
   min-height: 100dvh;
+}
+
+.app-page-shell {
+  position: relative;
+  isolation: isolate;
+}
+
+.app-surface {
+  border: 1px solid var(--app-border);
+  border-radius: var(--mantine-radius-md);
+  background: var(--app-surface-strong);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.app-hero-card {
+  border: 1px solid var(--app-border);
+  border-radius: var(--mantine-radius-md);
+  background: var(--app-surface-strong);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.app-panel {
+  border: 1px solid var(--app-border);
+  border-radius: var(--mantine-radius-md);
+  background: var(--app-surface-strong);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.app-panel-muted {
+  border: 1px solid var(--app-border);
+  border-radius: var(--mantine-radius-md);
+  background: var(--app-surface-muted);
+}
+
+.app-map-frame {
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  border-radius: var(--mantine-radius-md);
+  background: var(--app-surface-strong);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.app-stat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+  background: var(--app-surface-muted);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }

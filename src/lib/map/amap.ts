@@ -55,6 +55,7 @@ export async function searchAmapNearby(
       phone: poi.tel,
       cuisineType: poi.type?.split(';').pop(),
       placeUrl: `https://uri.amap.com/marker?position=${lng},${lat}&name=${encodeURIComponent(poi.name)}&callnative=1`,
+      source: 'amap',
     } satisfies Restaurant;
   });
 }

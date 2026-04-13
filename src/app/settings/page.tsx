@@ -15,6 +15,15 @@ import {
 } from '@mantine/core';
 import { AppShell } from '@/components/layout/AppShell';
 import type { AppLocale } from '@/i18n/request';
+import {
+  formatSearchRadius,
+  formatSearchRadiusMark,
+  getSearchRadiusKmForIndex,
+  getSearchRadiusPresetIndex,
+  getSearchRadiusSliderMax,
+  normalizeSearchRadiusKm,
+  SEARCH_RADIUS_MARK_PRESETS_KM,
+} from '@/lib/search-radius';
 import { useAppState } from '@/stores/app-state';
 import { usePreferences } from '@/stores/preferences';
 import { useVisited } from '@/stores/visited';
@@ -87,6 +96,8 @@ export default function SettingsPage() {
   } as const;
 
   const l = (key: keyof typeof labels) => labels[key][locale];
+  const effectiveSearchRadiusKm = normalizeSearchRadiusKm(searchRadiusKm);
+  const searchRadiusIndex = getSearchRadiusPresetIndex(effectiveSearchRadiusKm);
 
   const spicyLabels: Record<number, string> = {
     0: locale === 'zh-CN' ? '不吃辣' : locale === 'ja' ? '辛くない' : 'None',
@@ -100,7 +111,7 @@ export default function SettingsPage() {
       <Container py="md" px="md">
         <Stack gap="lg">
           <Title order={2} size="h3">
-            {'\u{2699}\u{FE0F}'} {l('title')}
+            {'⚙️'} {l('title')}
           </Title>
 
           {/* Language */}
@@ -130,9 +141,9 @@ export default function SettingsPage() {
               value={theme}
               onChange={handleThemeChange}
               data={[
-                { value: 'light', label: `\u{2600}\u{FE0F} ${l('light')}` },
-                { value: 'dark', label: `\u{1F319} ${l('dark')}` },
-                { value: 'auto', label: `\u{1F4F1} ${l('auto')}` },
+                { value: 'light', label: `☀️ ${l('light')}` },
+                { value: 'dark', label: `🌙 ${l('dark')}` },
+                { value: 'auto', label: `📱 ${l('auto')}` },
               ]}
               fullWidth
               radius="xl"
@@ -144,67 +155,84 @@ export default function SettingsPage() {
             <Text fw={600} mb="sm">
               {l('foodPrefs')}
             </Text>
-            <Box>
-              <Text size="sm" mb="xs">
+            <Stack gap="sm">
+              <Text size="sm">
                 {l('spicyMax')}: {spicyLabels[maxSpicy]}
               </Text>
               <Slider
                 value={maxSpicy}
                 onChange={setMaxSpicy}
+                label={(value) => spicyLabels[value]}
                 min={0}
                 max={3}
                 step={1}
+                color="red"
+              />
+              <SliderScaleLabels
+                min={0}
+                max={3}
                 marks={[
                   { value: 0, label: spicyLabels[0] },
                   { value: 1, label: spicyLabels[1] },
                   { value: 2, label: spicyLabels[2] },
                   { value: 3, label: spicyLabels[3] },
                 ]}
-                color="red"
               />
-            </Box>
+            </Stack>
           </Card>
 
           {/* Search Distance */}
           <Card padding="md" radius="md" withBorder>
-            <Text fw={600} mb="sm">
-              {l('searchDist')}: {searchRadiusKm} km
-            </Text>
-            <Slider
-              value={searchRadiusKm}
-              onChange={setSearchRadius}
-              min={0.5}
-              max={10}
-              step={0.5}
-              marks={[
-                { value: 1, label: '1km' },
-                { value: 3, label: '3km' },
-                { value: 5, label: '5km' },
-                { value: 10, label: '10km' },
-              ]}
-              color="orange"
-            />
+            <Stack gap="sm">
+              <Text fw={600}>
+                {l('searchDist')}: {formatSearchRadius(effectiveSearchRadiusKm)}
+              </Text>
+              <Slider
+                value={searchRadiusIndex}
+                onChange={(value) => setSearchRadius(getSearchRadiusKmForIndex(value))}
+                label={(value) => formatSearchRadius(getSearchRadiusKmForIndex(value))}
+                min={0}
+                max={getSearchRadiusSliderMax()}
+                step={1}
+                color="orange"
+              />
+              <SliderScaleLabels
+                min={0}
+                max={getSearchRadiusSliderMax()}
+                marks={SEARCH_RADIUS_MARK_PRESETS_KM.map((km) => ({
+                  value: getSearchRadiusPresetIndex(km),
+                  label: formatSearchRadiusMark(km),
+                }))}
+              />
+            </Stack>
           </Card>
 
           {/* Min Rating */}
           <Card padding="md" radius="md" withBorder>
-            <Text fw={600} mb="sm">
-              {l('minRating')}: {minRating > 0 ? `${minRating}+` : l('minRatingAny')}
-            </Text>
-            <Slider
-              value={minRating}
-              onChange={setMinRating}
-              min={0}
-              max={4.5}
-              step={0.5}
-              marks={[
-                { value: 0, label: l('minRatingAny') },
-                { value: 3, label: '3' },
-                { value: 4, label: '4' },
-                { value: 4.5, label: '4.5' },
-              ]}
-              color="yellow"
-            />
+            <Stack gap="sm">
+              <Text fw={600}>
+                {l('minRating')}: {minRating > 0 ? `${minRating}+` : l('minRatingAny')}
+              </Text>
+              <Slider
+                value={minRating}
+                onChange={setMinRating}
+                label={(value) => (value > 0 ? `${value}+` : l('minRatingAny'))}
+                min={0}
+                max={4.5}
+                step={0.5}
+                color="yellow"
+              />
+              <SliderScaleLabels
+                min={0}
+                max={4.5}
+                marks={[
+                  { value: 0, label: l('minRatingAny') },
+                  { value: 3, label: '3' },
+                  { value: 4, label: '4' },
+                  { value: 4.5, label: '4.5' },
+                ]}
+              />
+            </Stack>
           </Card>
 
           {/* History */}
@@ -275,5 +303,45 @@ export default function SettingsPage() {
         </Stack>
       </Container>
     </AppShell>
+  );
+}
+
+function SliderScaleLabels({
+  min,
+  max,
+  marks,
+}: {
+  min: number;
+  max: number;
+  marks: Array<{ value: number; label: string }>;
+}) {
+  return (
+    <Box style={{ position: 'relative', height: 20 }}>
+      {marks.map((mark) => {
+        const ratio = (mark.value - min) / (max - min);
+        const align =
+          ratio <= 0.05
+            ? 'translateX(0)'
+            : ratio >= 0.95
+              ? 'translateX(-100%)'
+              : 'translateX(-50%)';
+
+        return (
+          <Text
+            key={`${mark.value}-${mark.label}`}
+            size="xs"
+            c="dimmed"
+            style={{
+              position: 'absolute',
+              left: `${ratio * 100}%`,
+              transform: align,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {mark.label}
+          </Text>
+        );
+      })}
+    </Box>
   );
 }

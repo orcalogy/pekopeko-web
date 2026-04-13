@@ -187,6 +187,7 @@ function mapPlaces(places: GooglePlace[], options: SearchOptions): Restaurant[] 
         : undefined,
       websiteUrl: place.websiteUri,
       menuUrl: place.websiteUri,
+      source: 'google',
     } satisfies Restaurant;
   });
 }
