@@ -14,7 +14,7 @@ import {
   useMantineColorScheme,
 } from '@mantine/core';
 import { AppShell } from '@/components/layout/AppShell';
-import type { AppLocale } from '@/i18n/request';
+import type { AppLocale } from '@/lib/app-locale';
 import {
   formatSearchRadius,
   formatSearchRadiusMark,
@@ -56,21 +56,8 @@ export default function SettingsPage() {
     setColorScheme(t);
   };
 
-  const handleLocaleChange = async (value: string) => {
+  const handleLocaleChange = (value: string) => {
     setLocale(value as AppLocale);
-    // Set cookie for server-side locale detection
-    if ('cookieStore' in window) {
-      await (
-        window as unknown as {
-          cookieStore: { set: (opts: Record<string, unknown>) => Promise<void> };
-        }
-      ).cookieStore.set({
-        name: 'locale',
-        value,
-        path: '/',
-        maxAge: 31536000,
-      });
-    }
   };
 
   const labels = {

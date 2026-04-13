@@ -1,13 +1,23 @@
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { getRequestConfig } from 'next-intl/server';
+import { type AppLocale, detectPreferredLocale, isAppLocale } from '@/lib/app-locale';
 
-export const locales = ['zh-CN', 'ja', 'en'] as const;
-export type AppLocale = (typeof locales)[number];
-export const defaultLocale: AppLocale = 'zh-CN';
+export { type AppLocale, defaultLocale, locales } from '@/lib/app-locale';
+
+export async function resolveRequestLocale(): Promise<AppLocale> {
+  const cookieStore = await cookies();
+  const cookieLocale = cookieStore.get('locale')?.value;
+
+  if (cookieLocale && isAppLocale(cookieLocale)) {
+    return cookieLocale;
+  }
+
+  const headerStore = await headers();
+  return detectPreferredLocale(headerStore.get('accept-language'));
+}
 
 export default getRequestConfig(async () => {
-  const cookieStore = await cookies();
-  const locale = (cookieStore.get('locale')?.value as AppLocale) || defaultLocale;
+  const locale = await resolveRequestLocale();
 
   return {
     locale,

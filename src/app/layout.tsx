@@ -1,18 +1,24 @@
 import { ColorSchemeScript } from '@mantine/core';
 import type { Metadata, Viewport } from 'next';
 import { Providers } from '@/components/layout/Providers';
+import { resolveRequestLocale } from '@/i18n/request';
+import { getAppDescription, getAppName, getAppWindowTitle } from '@/lib/app-locale';
 import './globals.css';
 
-export const metadata: Metadata = {
-  title: '饿死啦 - pekopeko',
-  description: '帮你解决每天吃什么的选择困难 - 随机转盘选美食，支持自己做和出去吃',
-  manifest: '/manifest.json',
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: 'default',
-    title: 'pekopeko',
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = await resolveRequestLocale();
+
+  return {
+    title: getAppWindowTitle(locale),
+    description: getAppDescription(locale),
+    manifest: '/manifest.json',
+    appleWebApp: {
+      capable: true,
+      statusBarStyle: 'default',
+      title: getAppName(locale),
+    },
+  };
+}
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -21,9 +27,11 @@ export const viewport: Viewport = {
   themeColor: '#FF6B35',
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const locale = await resolveRequestLocale();
+
   return (
-    <html lang="zh-CN" suppressHydrationWarning>
+    <html lang={locale} suppressHydrationWarning>
       <head>
         <ColorSchemeScript defaultColorScheme="auto" />
       </head>
