@@ -13,6 +13,8 @@ interface RestaurantCardProps {
   isVisited?: boolean;
   isActive?: boolean;
   isPicked?: boolean;
+  semanticRank?: number | null;
+  semanticReason?: string | null;
   onActivate?: (restaurant: Restaurant) => void;
   rootRef?: (node: HTMLDivElement | null) => void;
 }
@@ -72,6 +74,12 @@ const pickedLabels: Record<Locale, string> = {
   'zh-CN': '今天选中',
   ja: '今日の候補',
   en: "Today's pick",
+};
+
+const aiReasonLabels: Record<Locale, string> = {
+  'zh-CN': 'AI 理由',
+  ja: 'AI の理由',
+  en: 'AI reason',
 };
 
 const sourceLabels = {
@@ -153,6 +161,8 @@ export function RestaurantCard({
   isVisited,
   isActive = false,
   isPicked = false,
+  semanticRank = null,
+  semanticReason = null,
   onActivate,
   rootRef,
 }: RestaurantCardProps) {
@@ -202,6 +212,11 @@ export function RestaurantCard({
                     {focusedLabels[locale]}
                   </Badge>
                 )}
+                {semanticRank != null && (
+                  <Badge color="orange" variant="filled" size="sm">
+                    {`AI #${semanticRank}`}
+                  </Badge>
+                )}
                 {restaurant.isOpenNow !== undefined && (
                   <Badge color={restaurant.isOpenNow ? 'green' : 'red'} variant="light" size="sm">
                     {restaurant.isOpenNow ? openLabels[locale] : closedLabels[locale]}
@@ -224,6 +239,11 @@ export function RestaurantCard({
                   {isActive && (
                     <Badge color="orange" variant="light" size="sm">
                       {focusedLabels[locale]}
+                    </Badge>
+                  )}
+                  {semanticRank != null && (
+                    <Badge color="orange" variant="filled" size="sm">
+                      {`AI #${semanticRank}`}
                     </Badge>
                   )}
                   {restaurant.isOpenNow !== undefined && (
@@ -297,6 +317,17 @@ export function RestaurantCard({
                 </Badge>
               ))}
             </Group>
+          )}
+
+          {semanticReason && (
+            <Box className="app-panel-muted" p="xs">
+              <Text size="xs" fw={700} c="orange" mb={2}>
+                {semanticRank != null
+                  ? `${aiReasonLabels[locale]} #${semanticRank}`
+                  : aiReasonLabels[locale]}
+              </Text>
+              <Text size="xs">{semanticReason}</Text>
+            </Box>
           )}
 
           {/* Opening hours */}

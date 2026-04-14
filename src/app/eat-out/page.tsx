@@ -26,6 +26,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { FEATURE_LABELS, RestaurantCard } from '@/components/restaurant/RestaurantCard';
+import { SmartSearchInput } from '@/components/search/SmartSearchInput';
 
 const RestaurantMap = dynamic(() => import('../../components/restaurant/RestaurantMap'), {
   ssr: false,
@@ -38,6 +39,13 @@ const RestaurantMap = dynamic(() => import('../../components/restaurant/Restaura
 
 import { categories } from '@/data/categories';
 import { combineKeywordTerms, normalizeSearchQuery } from '@/lib/llm/keyword-fallback';
+import { formatRestaurantsForRerank } from '@/lib/llm/restaurant-shortlist';
+import {
+  buildRestaurantTasteProfilePromptSummary,
+  deriveRestaurantTasteProfile,
+} from '@/lib/llm/restaurant-taste-profile';
+import type { EatOutRerankEntry, EatOutSemanticIntent } from '@/lib/llm/types';
+import { useSemanticSearch } from '@/lib/llm/use-semantic-search';
 import {
   formatSearchRadius,
   formatSearchRadiusMark,
@@ -80,6 +88,7 @@ function EatOutContent() {
   const categoryId = searchParams.get('category');
   const isRandomMode = searchParams.get('random') === 'true';
   const keyword = normalizeSearchQuery(searchParams.get('keyword'));
+  const hasOpenNowParam = searchParams.has('openNow');
   const openNowFromQuery = searchParams.get('openNow') === 'true';
   const locale = usePreferences((s) => s.locale);
   const searchRadiusKm = usePreferences((s) => s.searchRadiusKm);
@@ -91,6 +100,13 @@ function EatOutContent() {
   const partySize = usePreferences((s) => s.partySize);
   const setPartySize = usePreferences((s) => s.setPartySize);
   const theme = useMantineTheme();
+  const {
+    semanticEnabled,
+    isAnalyzingEatOut,
+    isRerankingEatOut,
+    analyzeEatOutQuery,
+    rerankEatOutResults,
+  } = useSemanticSearch();
 
   const {
     lat,
@@ -107,6 +123,20 @@ function EatOutContent() {
   const [activeRestaurantId, setActiveRestaurantId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refineQuery, setRefineQuery] = useState('');
+  const [refineMode, setRefineMode] = useState<'semantic' | 'keyword' | null>(null);
+  const [appliedRefineIntent, setAppliedRefineIntent] = useState<EatOutSemanticIntent | null>(null);
+  const [tempKeyword, setTempKeyword] = useState<string | null>(null);
+  const [tempCategoryId, setTempCategoryId] = useState<string | null>(null);
+  const [tempOpenOnly, setTempOpenOnly] = useState<boolean | null>(null);
+  const [tempMinRating, setTempMinRating] = useState<number | null>(null);
+  const [tempMaxBudgetLevel, setTempMaxBudgetLevel] = useState<number | null>(null);
+  const [tempPartySize, setTempPartySize] = useState<number | null>(null);
+  const [tempSortBy, setTempSortBy] = useState<SortBy | null>(null);
+  const [tempRequiredFeatures, setTempRequiredFeatures] = useState<
+    NonNullable<EatOutSemanticIntent['features']>
+  >([]);
+  const [aiRerankEntries, setAiRerankEntries] = useState<EatOutRerankEntry[]>([]);
 
   const { records: visitedRecords, markVisited } = useVisited();
   const visitedRecordsRef = useRef(visitedRecords);
@@ -116,19 +146,60 @@ function EatOutContent() {
   }, [visitedRecords]);
 
   // Filters
-  const [openOnly, setOpenOnly] = useState(searchParams.has('openNow') ? openNowFromQuery : true);
+  const [openOnly, setOpenOnly] = useState(hasOpenNowParam ? openNowFromQuery : true);
   const [sortBy, setSortBy] = useState<SortBy>('distance');
   const [filtersOpened, { toggle: toggleFilters }] = useDisclosure(false);
   const mapWrapperRef = useRef<HTMLDivElement | null>(null);
   const resultsViewportRef = useRef<HTMLDivElement | null>(null);
   const restaurantCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  useEffect(() => {
-    if (!searchParams.has('openNow')) return;
-    setOpenOnly(openNowFromQuery);
-  }, [openNowFromQuery, searchParams]);
+  const clearRefineState = useCallback((keepInput = false) => {
+    setRefineMode(null);
+    setAppliedRefineIntent(null);
+    setTempKeyword(null);
+    setTempCategoryId(null);
+    setTempOpenOnly(null);
+    setTempMinRating(null);
+    setTempMaxBudgetLevel(null);
+    setTempPartySize(null);
+    setTempSortBy(null);
+    setTempRequiredFeatures([]);
 
-  const category = categories.find((c) => c.id === categoryId);
+    if (!keepInput) {
+      setRefineQuery('');
+    }
+  }, []);
+
+  useEffect(() => {
+    setOpenOnly(hasOpenNowParam ? openNowFromQuery : true);
+  }, [hasOpenNowParam, openNowFromQuery]);
+
+  const baseSearchResetKey = `${categoryId ?? ''}|${keyword}|${hasOpenNowParam ? '1' : '0'}|${
+    openNowFromQuery ? '1' : '0'
+  }`;
+
+  useEffect(() => {
+    void baseSearchResetKey;
+    clearRefineState();
+  }, [baseSearchResetKey, clearRefineState]);
+
+  const effectiveKeyword = tempKeyword ?? keyword;
+  const effectiveCategoryId = tempCategoryId ?? categoryId;
+  const effectiveCategory = categories.find((c) => c.id === effectiveCategoryId);
+  const effectiveOpenOnly = tempOpenOnly ?? openOnly;
+  const effectiveMinRating = tempMinRating ?? minRating;
+  const effectiveMaxBudgetLevel = tempMaxBudgetLevel ?? maxBudgetLevel;
+  const effectivePartySize = tempPartySize ?? partySize;
+  const effectiveSortBy = tempSortBy ?? sortBy;
+  const aiRerankResetKey = [
+    baseSearchResetKey,
+    effectiveMinRating,
+    effectiveMaxBudgetLevel,
+    effectivePartySize,
+    effectiveOpenOnly ? '1' : '0',
+    effectiveSortBy,
+    tempRequiredFeatures.join(','),
+  ].join('|');
   const effectiveSearchRadiusKm = normalizeSearchRadiusKm(searchRadiusKm);
   const searchRadiusIndex = getSearchRadiusPresetIndex(effectiveSearchRadiusKm);
   const hasCoordinates = lat != null && lng != null;
@@ -141,45 +212,80 @@ function EatOutContent() {
   const restaurants = useMemo(() => {
     let list = allRestaurants;
 
-    if (minRating > 0) {
+    if (effectiveMinRating > 0) {
       // Keep unrated restaurants (e.g. HotPepper-only) — only exclude rated ones below threshold
-      list = list.filter((r) => r.rating === undefined || r.rating >= minRating);
+      list = list.filter((r) => r.rating === undefined || r.rating >= effectiveMinRating);
     }
 
-    if (maxBudgetLevel > 0) {
+    if (effectiveMaxBudgetLevel > 0) {
       list = list.filter(
         (restaurant) =>
           restaurant.priceLevel === undefined ||
-          (restaurant.priceLevel > 0 && restaurant.priceLevel <= maxBudgetLevel),
+          (restaurant.priceLevel > 0 && restaurant.priceLevel <= effectiveMaxBudgetLevel),
       );
     }
 
-    if (partySize > 1) {
+    if (effectivePartySize > 1) {
       list = list.filter(
-        (restaurant) => restaurant.capacity === undefined || restaurant.capacity >= partySize,
+        (restaurant) =>
+          restaurant.capacity === undefined || restaurant.capacity >= effectivePartySize,
       );
     }
 
-    if (sortBy === 'rating') {
+    if (tempRequiredFeatures.length > 0) {
+      list = list.filter((restaurant) =>
+        tempRequiredFeatures.every((feature) => restaurant.features?.includes(feature)),
+      );
+    }
+
+    if (effectiveSortBy === 'rating') {
       list = [...list].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
     }
     // 'distance' is the default sort from the API, no re-sort needed
 
     return list;
-  }, [allRestaurants, minRating, maxBudgetLevel, partySize, sortBy]);
+  }, [
+    allRestaurants,
+    effectiveMaxBudgetLevel,
+    effectiveMinRating,
+    effectivePartySize,
+    effectiveSortBy,
+    tempRequiredFeatures,
+  ]);
 
   const displayRestaurants = useMemo(() => {
+    const rankedRestaurants =
+      aiRerankEntries.length === 0
+        ? restaurants
+        : (() => {
+            const rankIndex = new Map(aiRerankEntries.map((entry, index) => [entry.id, index]));
+            const originalIndex = new Map(
+              restaurants.map((restaurant, index) => [restaurant.id, index]),
+            );
+
+            return [...restaurants].sort((a, b) => {
+              const aRank = rankIndex.get(a.id);
+              const bRank = rankIndex.get(b.id);
+
+              if (aRank != null && bRank != null) return aRank - bRank;
+              if (aRank != null) return -1;
+              if (bRank != null) return 1;
+
+              return (originalIndex.get(a.id) ?? 0) - (originalIndex.get(b.id) ?? 0);
+            });
+          })();
+
     if (!isRandomMode || !pickedRestaurant) {
-      return restaurants;
+      return rankedRestaurants;
     }
 
-    const picked = restaurants.find((restaurant) => restaurant.id === pickedRestaurant.id);
+    const picked = rankedRestaurants.find((restaurant) => restaurant.id === pickedRestaurant.id);
     if (!picked) {
-      return restaurants;
+      return rankedRestaurants;
     }
 
-    return [picked, ...restaurants.filter((restaurant) => restaurant.id !== picked.id)];
-  }, [isRandomMode, pickedRestaurant, restaurants]);
+    return [picked, ...rankedRestaurants.filter((restaurant) => restaurant.id !== picked.id)];
+  }, [aiRerankEntries, isRandomMode, pickedRestaurant, restaurants]);
 
   const randomCandidateSignature = useMemo(
     () =>
@@ -211,17 +317,17 @@ function EatOutContent() {
         locale,
       });
 
-      const categoryKeyword = category
+      const categoryKeyword = effectiveCategory
         ? provider === 'hotpepper'
-          ? category.name.ja
-          : category.name[locale]
+          ? effectiveCategory.name.ja
+          : effectiveCategory.name[locale]
         : undefined;
-      const searchKeyword = combineKeywordTerms(keyword, categoryKeyword);
+      const searchKeyword = combineKeywordTerms(effectiveKeyword, categoryKeyword);
 
       if (searchKeyword) {
         params.set('keyword', searchKeyword);
       }
-      if (openOnly) {
+      if (effectiveOpenOnly) {
         params.set('openNow', 'true');
       }
 
@@ -231,7 +337,7 @@ function EatOutContent() {
 
       data.sort((a, b) => a.distance - b.distance);
 
-      const filtered = openOnly ? data.filter((r) => r.isOpenNow !== false) : data;
+      const filtered = effectiveOpenOnly ? data.filter((r) => r.isOpenNow !== false) : data;
 
       setAllRestaurants(filtered);
       initialFetchDone.current = true;
@@ -240,7 +346,16 @@ function EatOutContent() {
     } finally {
       setLoading(false);
     }
-  }, [lat, lng, provider, effectiveSearchRadiusKm, category, keyword, locale, openOnly]);
+  }, [
+    lat,
+    lng,
+    provider,
+    effectiveSearchRadiusKm,
+    effectiveCategory,
+    effectiveKeyword,
+    locale,
+    effectiveOpenOnly,
+  ]);
 
   const pickRandomRestaurant = useCallback(
     (excludeId?: string | null) => {
@@ -389,10 +504,135 @@ function EatOutContent() {
 
   const handleMarkVisited = useCallback(
     (r: Restaurant) => {
-      markVisited(r.id, r.name);
+      markVisited(r);
     },
     [markVisited],
   );
+
+  const handleRefineSearch = useCallback(async () => {
+    const normalizedRefineQuery = normalizeSearchQuery(refineQuery);
+    if (!normalizedRefineQuery) return;
+
+    let nextIntent: EatOutSemanticIntent | null = null;
+    let nextMode: 'semantic' | 'keyword' = 'keyword';
+
+    if (semanticEnabled) {
+      const result = await analyzeEatOutQuery(normalizedRefineQuery);
+      if (result.mode === 'semantic' && result.intent) {
+        nextIntent = result.intent;
+        nextMode = 'semantic';
+      }
+    }
+
+    if (!nextIntent) {
+      nextIntent = { keyword: normalizedRefineQuery };
+    }
+
+    setRefineMode(nextMode);
+    setAppliedRefineIntent(nextIntent);
+    setTempKeyword(nextIntent.keyword ?? (nextMode === 'keyword' ? normalizedRefineQuery : null));
+    setTempCategoryId(nextIntent.category ?? null);
+    setTempOpenOnly(nextIntent.openNow === true ? true : null);
+    setTempMinRating(
+      nextIntent.minRating != null ? Math.max(minRating, nextIntent.minRating) : null,
+    );
+    setTempMaxBudgetLevel(
+      nextIntent.maxBudgetLevel != null
+        ? maxBudgetLevel > 0
+          ? Math.min(maxBudgetLevel, nextIntent.maxBudgetLevel)
+          : nextIntent.maxBudgetLevel
+        : null,
+    );
+    setTempPartySize(
+      nextIntent.partySize != null ? Math.max(partySize, nextIntent.partySize) : null,
+    );
+    setTempSortBy(nextIntent.sortBy ?? null);
+    setTempRequiredFeatures(nextIntent.features ?? []);
+  }, [analyzeEatOutQuery, maxBudgetLevel, minRating, partySize, refineQuery, semanticEnabled]);
+
+  const clearAiRerank = useCallback(() => {
+    setAiRerankEntries([]);
+  }, []);
+
+  const tasteProfile = useMemo(
+    () => deriveRestaurantTasteProfile(visitedRecords),
+    [visitedRecords],
+  );
+  const tasteProfilePromptSummary = useMemo(
+    () => buildRestaurantTasteProfilePromptSummary(tasteProfile),
+    [tasteProfile],
+  );
+  const hasTasteProfileSignals =
+    !!tasteProfile &&
+    (tasteProfile.topCuisines.length > 0 ||
+      tasteProfile.topFeatures.length > 0 ||
+      tasteProfile.preferredPriceLevel != null ||
+      tasteProfile.typicalDistanceMeters != null);
+
+  const aiRerankGoalSummary = useMemo(() => {
+    const parts: string[] = [];
+
+    if (effectiveKeyword) {
+      parts.push(`keyword: ${effectiveKeyword}`);
+    }
+    if (effectiveCategory) {
+      parts.push(`category: ${effectiveCategory.name.en}`);
+    }
+    if (effectiveOpenOnly) {
+      parts.push('open now only');
+    }
+    if (effectiveMinRating > 0) {
+      parts.push(`minimum rating ${effectiveMinRating}`);
+    }
+    if (effectiveMaxBudgetLevel > 0) {
+      parts.push(`budget at most ${'¥'.repeat(effectiveMaxBudgetLevel)}`);
+    }
+    if (effectivePartySize > 1) {
+      parts.push(`party size ${effectivePartySize}`);
+    }
+    if (tempRequiredFeatures.length > 0) {
+      parts.push(`required features: ${tempRequiredFeatures.join(', ')}`);
+    }
+
+    parts.push('prefer places not visited very recently when otherwise similar');
+
+    return parts.join('; ');
+  }, [
+    effectiveCategory,
+    effectiveKeyword,
+    effectiveMaxBudgetLevel,
+    effectiveMinRating,
+    effectiveOpenOnly,
+    effectivePartySize,
+    tempRequiredFeatures,
+  ]);
+
+  const aiRerankCandidates = useMemo(() => restaurants.slice(0, 10), [restaurants]);
+
+  const handleAiRerank = useCallback(async () => {
+    if (aiRerankCandidates.length < 2 || !semanticEnabled) return;
+
+    const result = await rerankEatOutResults({
+      goalSummary: aiRerankGoalSummary,
+      tasteProfileSummary: tasteProfilePromptSummary,
+      candidateCatalog: formatRestaurantsForRerank(aiRerankCandidates, visitedRecords),
+      validIds: aiRerankCandidates.map((restaurant) => restaurant.id),
+    });
+
+    setAiRerankEntries(result.mode === 'semantic' ? result.items : []);
+  }, [
+    aiRerankCandidates,
+    aiRerankGoalSummary,
+    rerankEatOutResults,
+    semanticEnabled,
+    tasteProfilePromptSummary,
+    visitedRecords,
+  ]);
+
+  useEffect(() => {
+    void aiRerankResetKey;
+    setAiRerankEntries([]);
+  }, [aiRerankResetKey]);
 
   // Request a fresh location once per mount when persisted coordinates are missing or stale.
   useEffect(() => {
@@ -414,9 +654,23 @@ function EatOutContent() {
   }, [fetchRestaurants, hasSearchLocation]);
 
   const l = useLabels(locale);
-  const pageTitle = category ? category.name[locale] : keyword || l.title;
+  const pageTitle = effectiveKeyword || effectiveCategory?.name[locale] || l.title;
   const hasResults = !loading && !error && restaurants.length > 0;
-  const hasActiveClientFilters = minRating > 0 || maxBudgetLevel > 0 || partySize > 1;
+  const hasActiveClientFilters =
+    effectiveMinRating > 0 ||
+    effectiveMaxBudgetLevel > 0 ||
+    effectivePartySize > 1 ||
+    tempRequiredFeatures.length > 0;
+  const aiRerankById = useMemo(
+    () =>
+      new Map(
+        aiRerankEntries.map((entry, index) => [
+          entry.id,
+          { rank: index + 1, reason: entry.reason },
+        ]),
+      ),
+    [aiRerankEntries],
+  );
   const activeRestaurant =
     displayRestaurants.find((restaurant) => restaurant.id === activeRestaurantId) ??
     pickedRestaurant;
@@ -432,9 +686,9 @@ function EatOutContent() {
                   <Title order={2} size="h3" fw={800} style={{ letterSpacing: '-0.03em' }}>
                     {pageTitle}
                   </Title>
-                  {keyword && (
+                  {effectiveKeyword && (
                     <Text size="sm" c="dimmed" mt={4}>
-                      {l.keywordSummary(keyword)}
+                      {l.keywordSummary(effectiveKeyword)}
                     </Text>
                   )}
                 </Box>
@@ -449,19 +703,19 @@ function EatOutContent() {
                 </Button>
               </Group>
 
-              {(keyword || category || openNowFromQuery) && (
+              {(effectiveKeyword || effectiveCategory || hasOpenNowParam || tempOpenOnly) && (
                 <Group gap="xs" wrap="wrap">
-                  {keyword && (
+                  {effectiveKeyword && (
                     <Badge variant="light" color="orange" radius="xl">
-                      {l.keywordBadge(keyword)}
+                      {l.keywordBadge(effectiveKeyword)}
                     </Badge>
                   )}
-                  {category && (
+                  {effectiveCategory && (
                     <Badge variant="outline" color="gray" radius="xl">
-                      {category.name[locale]}
+                      {effectiveCategory.name[locale]}
                     </Badge>
                   )}
-                  {openNowFromQuery && (
+                  {(hasOpenNowParam || tempOpenOnly) && (
                     <Badge variant="outline" color="green" radius="xl">
                       {l.openOnlyShort}
                     </Badge>
@@ -488,6 +742,87 @@ function EatOutContent() {
                 </Button>
               </Group>
 
+              <SmartSearchInput
+                value={refineQuery}
+                onChange={setRefineQuery}
+                onSubmit={handleRefineSearch}
+                loading={semanticEnabled && isAnalyzingEatOut}
+                submitLabel={semanticEnabled ? l.refineSubmitAi : l.refineSubmit}
+                submitDisabled={!normalizeSearchQuery(refineQuery)}
+                placeholder={l.refinePlaceholder}
+                description={semanticEnabled ? l.refineDescriptionAi : l.refineDescription}
+              />
+
+              {(appliedRefineIntent || refineMode) && (
+                <Stack gap="xs">
+                  <Group gap="xs" wrap="wrap">
+                    <Badge
+                      variant="light"
+                      color={refineMode === 'semantic' ? 'orange' : 'gray'}
+                      radius="xl"
+                    >
+                      {refineMode === 'semantic' ? l.refineAppliedAi : l.refineApplied}
+                    </Badge>
+                    {tempKeyword && (
+                      <Badge variant="light" color="orange" radius="xl">
+                        {l.keywordBadge(tempKeyword)}
+                      </Badge>
+                    )}
+                    {tempCategoryId && (
+                      <Badge variant="outline" color="grape" radius="xl">
+                        {categories.find((item) => item.id === tempCategoryId)?.name[locale] ??
+                          tempCategoryId}
+                      </Badge>
+                    )}
+                    {tempOpenOnly && (
+                      <Badge variant="outline" color="green" radius="xl">
+                        {l.openOnlyShort}
+                      </Badge>
+                    )}
+                    {tempMinRating != null && (
+                      <Badge variant="light" color="yellow" radius="xl">
+                        {l.minRatingBadge(tempMinRating)}
+                      </Badge>
+                    )}
+                    {tempMaxBudgetLevel != null && (
+                      <Badge variant="light" color="green" radius="xl">
+                        {l.maxBudgetBadge(tempMaxBudgetLevel)}
+                      </Badge>
+                    )}
+                    {tempPartySize != null && (
+                      <Badge variant="light" color="grape" radius="xl">
+                        {l.partySizeBadge(tempPartySize)}
+                      </Badge>
+                    )}
+                    {tempSortBy && (
+                      <Badge variant="light" color="gray" radius="xl">
+                        {tempSortBy === 'distance' ? l.sortDistance : l.sortRating}
+                      </Badge>
+                    )}
+                    {tempRequiredFeatures.map((feature) => (
+                      <Badge key={feature} variant="outline" color="cyan" radius="xl">
+                        {FEATURE_LABELS[feature]?.[locale] ?? feature}
+                      </Badge>
+                    ))}
+                  </Group>
+
+                  <Group justify="space-between" align="center" gap="sm">
+                    <Text size="xs" c="dimmed">
+                      {l.refineTemporaryNote}
+                    </Text>
+                    <Button
+                      variant="subtle"
+                      size="xs"
+                      radius="xl"
+                      color="gray"
+                      onClick={() => clearRefineState()}
+                    >
+                      {l.clearRefine}
+                    </Button>
+                  </Group>
+                </Stack>
+              )}
+
               <Group gap="xs" wrap="wrap">
                 <Box className="app-stat-pill">
                   <Text size="xs" c="dimmed">
@@ -502,7 +837,7 @@ function EatOutContent() {
                     {l.minRating}
                   </Text>
                   <Text size="sm" fw={600}>
-                    {minRating > 0 ? `${minRating}+` : l.any}
+                    {effectiveMinRating > 0 ? `${effectiveMinRating}+` : l.any}
                   </Text>
                 </Box>
                 <Box className="app-stat-pill">
@@ -510,7 +845,7 @@ function EatOutContent() {
                     {l.budget}
                   </Text>
                   <Text size="sm" fw={600}>
-                    {formatBudgetLevel(maxBudgetLevel, l)}
+                    {formatBudgetLevel(effectiveMaxBudgetLevel, l)}
                   </Text>
                 </Box>
                 <Box className="app-stat-pill">
@@ -518,7 +853,7 @@ function EatOutContent() {
                     {l.partySize}
                   </Text>
                   <Text size="sm" fw={600}>
-                    {l.partySizeValue(partySize)}
+                    {l.partySizeValue(effectivePartySize)}
                   </Text>
                 </Box>
                 <Box className="app-stat-pill">
@@ -526,7 +861,7 @@ function EatOutContent() {
                     {l.sortBy}
                   </Text>
                   <Text size="sm" fw={600}>
-                    {sortBy === 'distance' ? l.sortDistance : l.sortRating}
+                    {effectiveSortBy === 'distance' ? l.sortDistance : l.sortRating}
                   </Text>
                 </Box>
               </Group>
@@ -536,8 +871,11 @@ function EatOutContent() {
                   <Box className="app-panel-muted" p="sm">
                     <Switch
                       label={l.openOnly}
-                      checked={openOnly}
-                      onChange={(e) => setOpenOnly(e.currentTarget.checked)}
+                      checked={effectiveOpenOnly}
+                      onChange={(e) => {
+                        setTempOpenOnly(null);
+                        setOpenOnly(e.currentTarget.checked);
+                      }}
                       color="orange"
                     />
                   </Box>
@@ -579,12 +917,15 @@ function EatOutContent() {
                           {l.minRating}
                         </Text>
                         <Badge variant="light" color="yellow" radius="xl">
-                          {minRating > 0 ? `${minRating}+` : l.any}
+                          {effectiveMinRating > 0 ? `${effectiveMinRating}+` : l.any}
                         </Badge>
                       </Group>
                       <Slider
-                        value={minRating}
-                        onChange={setMinRating}
+                        value={effectiveMinRating}
+                        onChange={(value) => {
+                          setTempMinRating(null);
+                          setMinRating(value);
+                        }}
                         min={0}
                         max={4.5}
                         step={0.5}
@@ -610,12 +951,15 @@ function EatOutContent() {
                           {l.budget}
                         </Text>
                         <Badge variant="light" color="green" radius="xl">
-                          {formatBudgetLevel(maxBudgetLevel, l)}
+                          {formatBudgetLevel(effectiveMaxBudgetLevel, l)}
                         </Badge>
                       </Group>
                       <Slider
-                        value={maxBudgetLevel}
-                        onChange={setMaxBudgetLevel}
+                        value={effectiveMaxBudgetLevel}
+                        onChange={(value) => {
+                          setTempMaxBudgetLevel(null);
+                          setMaxBudgetLevel(value);
+                        }}
                         label={(value) => formatBudgetLevel(value, l)}
                         min={0}
                         max={MAX_BUDGET_LEVEL}
@@ -643,12 +987,15 @@ function EatOutContent() {
                           {l.partySize}
                         </Text>
                         <Badge variant="light" color="grape" radius="xl">
-                          {l.partySizeValue(partySize)}
+                          {l.partySizeValue(effectivePartySize)}
                         </Badge>
                       </Group>
                       <Slider
-                        value={partySize}
-                        onChange={setPartySize}
+                        value={effectivePartySize}
+                        onChange={(value) => {
+                          setTempPartySize(null);
+                          setPartySize(value);
+                        }}
                         label={(value) => l.partySizeValue(value)}
                         min={MIN_PARTY_SIZE}
                         max={MAX_PARTY_SIZE}
@@ -676,12 +1023,15 @@ function EatOutContent() {
                           {l.sortBy}
                         </Text>
                         <Badge variant="light" color="gray" radius="xl">
-                          {sortBy === 'distance' ? l.sortDistance : l.sortRating}
+                          {effectiveSortBy === 'distance' ? l.sortDistance : l.sortRating}
                         </Badge>
                       </Group>
                       <SegmentedControl
-                        value={sortBy}
-                        onChange={(v) => setSortBy(v as SortBy)}
+                        value={effectiveSortBy}
+                        onChange={(v) => {
+                          setTempSortBy(null);
+                          setSortBy(v as SortBy);
+                        }}
                         data={[
                           { value: 'distance', label: l.sortDistance },
                           { value: 'rating', label: l.sortRating },
@@ -1102,13 +1452,83 @@ function EatOutContent() {
                   </Box>
                 )}
 
+                {!isRandomMode && semanticEnabled && restaurants.length > 1 && (
+                  <Box className="app-panel-muted" p="sm">
+                    <Group justify="space-between" align="center" gap="sm">
+                      <Box style={{ flex: 1, minWidth: 0 }}>
+                        <Text fw={700} size="sm">
+                          {l.aiRankTitle}
+                        </Text>
+                        <Text size="xs" c="dimmed" mt={3}>
+                          {l.aiRankDescription(aiRerankCandidates.length)}
+                        </Text>
+                      </Box>
+                      <Group gap="xs" wrap="wrap" justify="flex-end">
+                        {aiRerankEntries.length > 0 && (
+                          <Button
+                            variant="subtle"
+                            color="gray"
+                            size="xs"
+                            radius="xl"
+                            onClick={clearAiRerank}
+                          >
+                            {l.clearAiRank}
+                          </Button>
+                        )}
+                        <Button
+                          variant="light"
+                          color="orange"
+                          size="xs"
+                          radius="xl"
+                          onClick={handleAiRerank}
+                          loading={isRerankingEatOut}
+                        >
+                          {aiRerankEntries.length > 0 ? l.refreshAiRank : l.applyAiRank}
+                        </Button>
+                      </Group>
+                    </Group>
+
+                    {hasTasteProfileSignals && tasteProfile && (
+                      <Group gap="xs" wrap="wrap" mt="sm">
+                        <Badge variant="light" color="grape" radius="xl">
+                          {l.tasteProfileTitle}
+                        </Badge>
+                        {tasteProfile.topCuisines.map((cuisine) => (
+                          <Badge key={cuisine} variant="outline" color="gray" radius="xl">
+                            {cuisine}
+                          </Badge>
+                        ))}
+                        {tasteProfile.topFeatures.map((feature) => (
+                          <Badge key={feature} variant="outline" color="cyan" radius="xl">
+                            {FEATURE_LABELS[feature]?.[locale] ?? feature}
+                          </Badge>
+                        ))}
+                        {tasteProfile.preferredPriceLevel != null && (
+                          <Badge variant="light" color="green" radius="xl">
+                            {l.tasteBudgetBadge(tasteProfile.preferredPriceLevel)}
+                          </Badge>
+                        )}
+                        {tasteProfile.typicalDistanceMeters != null && (
+                          <Badge variant="light" color="blue" radius="xl">
+                            {l.tasteDistanceBadge(tasteProfile.typicalDistanceMeters)}
+                          </Badge>
+                        )}
+                      </Group>
+                    )}
+                  </Box>
+                )}
+
                 <Group justify="space-between" align="end" gap="sm">
                   <Box>
                     <Text fw={700}>{l.resultsTitle(restaurants.length)}</Text>
                   </Box>
                   <Box className="app-stat-pill">
                     <Text size="sm" fw={600}>
-                      {sortBy === 'distance' ? l.sortDistance : l.sortRating}
+                      {aiRerankEntries.length > 0
+                        ? l.aiRankShort
+                        : effectiveSortBy === 'distance'
+                          ? l.sortDistance
+                          : l.sortRating}
                     </Text>
                   </Box>
                 </Group>
@@ -1136,6 +1556,8 @@ function EatOutContent() {
                         isVisited={visitedRecords.some((v) => v.id === r.id)}
                         isActive={r.id === activeRestaurantId}
                         isPicked={isRandomMode && r.id === pickedRestaurant?.id}
+                        semanticRank={aiRerankById.get(r.id)?.rank ?? null}
+                        semanticReason={aiRerankById.get(r.id)?.reason ?? null}
                         onActivate={(restaurant) => setActiveRestaurantId(restaurant.id)}
                         rootRef={(node) => {
                           restaurantCardRefs.current[r.id] = node;
@@ -1216,6 +1638,53 @@ function useLabels(locale: Locale) {
       },
       back: locale === 'zh-CN' ? '← 返回' : locale === 'ja' ? '← 戻る' : '← Back',
       filter: locale === 'zh-CN' ? '筛选' : locale === 'ja' ? 'フィルター' : 'Filters',
+      refineSubmitAi: locale === 'zh-CN' ? 'AI 细化' : locale === 'ja' ? 'AIで絞る' : 'Refine AI',
+      refineSubmit: locale === 'zh-CN' ? '细化搜索' : locale === 'ja' ? '絞り込む' : 'Refine',
+      refinePlaceholder:
+        locale === 'zh-CN'
+          ? '比如：更便宜一点、适合4人、有 WiFi'
+          : locale === 'ja'
+            ? '例: もう少し安く、4人向け、WiFiあり'
+            : 'Try cheaper, for 4 people, or with WiFi',
+      refineDescriptionAi:
+        locale === 'zh-CN'
+          ? '本地模型会临时补充评分、预算、人数、营业中或设施条件，不会改你的已保存偏好。'
+          : locale === 'ja'
+            ? 'ローカルモデルが評価・予算・人数・営業中・設備条件を一時的に補います。保存済み設定は変更しません。'
+            : 'The local model adds temporary rating, budget, party size, open-now, or feature filters without changing saved preferences.',
+      refineDescription:
+        locale === 'zh-CN'
+          ? '用一句话临时细化当前结果。'
+          : locale === 'ja'
+            ? '一文で現在の結果を一時的に絞り込みます。'
+            : 'Temporarily refine the current results with one short query.',
+      refineAppliedAi:
+        locale === 'zh-CN' ? 'AI 已细化' : locale === 'ja' ? 'AIで絞り込み済み' : 'AI refined',
+      refineApplied:
+        locale === 'zh-CN' ? '已细化搜索' : locale === 'ja' ? '絞り込み済み' : 'Refined search',
+      refineTemporaryNote:
+        locale === 'zh-CN'
+          ? '这些条件仅在当前页面临时生效。'
+          : locale === 'ja'
+            ? 'これらの条件はこのページだけで一時的に有効です。'
+            : 'These extra filters are temporary to this page.',
+      clearRefine:
+        locale === 'zh-CN' ? '清除细化' : locale === 'ja' ? '絞り込み解除' : 'Clear refine',
+      aiRankTitle:
+        locale === 'zh-CN' ? 'AI 排一下顺序' : locale === 'ja' ? 'AI で並び替え' : 'AI rerank',
+      aiRankDescription: (count: number) =>
+        locale === 'zh-CN'
+          ? `让本地模型重排前 ${count} 家候选，并给出简短理由。`
+          : locale === 'ja'
+            ? `上位 ${count} 件をローカルモデルで並び替え、短い理由を付けます。`
+            : `Rerank the top ${count} nearby options locally and add short reasons.`,
+      applyAiRank: locale === 'zh-CN' ? 'AI 排序' : locale === 'ja' ? 'AI 並び替え' : 'AI rerank',
+      refreshAiRank:
+        locale === 'zh-CN' ? '重新排序' : locale === 'ja' ? '並び替え直す' : 'Refresh rank',
+      clearAiRank: locale === 'zh-CN' ? '清除排序' : locale === 'ja' ? 'AI順を解除' : 'Clear rank',
+      aiRankShort: locale === 'zh-CN' ? 'AI 顺序' : locale === 'ja' ? 'AI順' : 'AI order',
+      tasteProfileTitle:
+        locale === 'zh-CN' ? '你的口味' : locale === 'ja' ? 'あなたの傾向' : 'Your taste',
       openOnly:
         locale === 'zh-CN' ? '仅看营业中' : locale === 'ja' ? '営業中のみ' : 'Open Now Only',
       openOnlyShort: locale === 'zh-CN' ? '营业中' : locale === 'ja' ? '営業中' : 'Open now',
@@ -1284,12 +1753,38 @@ function useLabels(locale: Locale) {
           : locale === 'ja'
             ? `${count}名`
             : `${count} ${count === 1 ? 'person' : 'people'}`,
+      partySizeBadge: (count: number) =>
+        locale === 'zh-CN' ? `${count}人` : locale === 'ja' ? `${count}名向け` : `For ${count}`,
       capacityValue: (count: number) =>
         locale === 'zh-CN'
           ? `👥 ${count}人`
           : locale === 'ja'
             ? `👥 ${count}名`
             : `👥 ${count} seats`,
+      minRatingBadge: (rating: number) =>
+        locale === 'zh-CN'
+          ? `评分 ≥ ${rating}`
+          : locale === 'ja'
+            ? `評価 ${rating}+`
+            : `Rating >= ${rating}`,
+      maxBudgetBadge: (level: number) =>
+        locale === 'zh-CN'
+          ? `预算 ≤ ${'¥'.repeat(level)}`
+          : locale === 'ja'
+            ? `予算 ${'¥'.repeat(level)}まで`
+            : `Budget <= ${'¥'.repeat(level)}`,
+      tasteBudgetBadge: (level: number) =>
+        locale === 'zh-CN'
+          ? `常点 ${'¥'.repeat(level)}`
+          : locale === 'ja'
+            ? `よく選ぶ ${'¥'.repeat(level)}`
+            : `Usually ${'¥'.repeat(level)}`,
+      tasteDistanceBadge: (meters: number) =>
+        locale === 'zh-CN'
+          ? `常去 ${meters >= 1000 ? `${(meters / 1000).toFixed(1)}km` : `${meters}m`}`
+          : locale === 'ja'
+            ? `よく行く距離 ${meters >= 1000 ? `${(meters / 1000).toFixed(1)}km` : `${meters}m`}`
+            : `Usually ${meters >= 1000 ? `${(meters / 1000).toFixed(1)}km` : `${meters}m`}`,
       filterTitle:
         locale === 'zh-CN'
           ? '筛选及排序'
