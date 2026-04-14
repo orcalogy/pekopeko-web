@@ -1,4 +1,6 @@
-import { type NextRequest, NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+import { ApiRouteError, createRequestId, imageResponse, legacyErrorResponse } from '@/lib/api/http';
+import { fetchGooglePhotoMedia, getPhotoCacheControl, normalizePhotoWidth } from '@/lib/api/photo';
 
 /**
  * Proxy for Google Places photo media.
@@ -8,36 +10,29 @@ import { type NextRequest, NextResponse } from 'next/server';
  * and streams the image back to the client.
  */
 export async function GET(request: NextRequest) {
+  const requestId = createRequestId();
   const ref = request.nextUrl.searchParams.get('ref');
-  const maxWidth = request.nextUrl.searchParams.get('maxWidth') || '400';
+  const maxWidth = normalizePhotoWidth(request.nextUrl.searchParams.get('maxWidth'));
 
   if (!ref) {
-    return NextResponse.json({ error: 'ref is required' }, { status: 400 });
-  }
-
-  const key = process.env.GOOGLE_MAPS_SERVER_KEY;
-  if (!key) {
-    return NextResponse.json({ error: 'API key not configured' }, { status: 500 });
+    return legacyErrorResponse(
+      new ApiRouteError({
+        status: 400,
+        code: 'invalid_argument',
+        message: 'ref is required',
+      }),
+      requestId,
+    );
   }
 
   try {
-    const url = `https://places.googleapis.com/v1/${ref}/media?maxWidthPx=${maxWidth}&key=${key}`;
-    const res = await fetch(url, { redirect: 'follow' });
-
-    if (!res.ok) {
-      return NextResponse.json({ error: 'Photo fetch failed' }, { status: res.status });
-    }
-
-    const contentType = res.headers.get('content-type') || 'image/jpeg';
-    const body = res.body;
-
-    return new NextResponse(body, {
-      headers: {
-        'Content-Type': contentType,
-        'Cache-Control': 'public, max-age=86400, s-maxage=86400',
-      },
+    const response = await fetchGooglePhotoMedia(ref, maxWidth);
+    return imageResponse(response.body, {
+      requestId,
+      cacheControl: getPhotoCacheControl(),
+      contentType: response.headers.get('content-type') || 'image/jpeg',
     });
-  } catch {
-    return NextResponse.json({ error: 'Photo fetch failed' }, { status: 500 });
+  } catch (error) {
+    return legacyErrorResponse(error, requestId);
   }
 }

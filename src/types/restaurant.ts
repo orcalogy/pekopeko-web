@@ -7,6 +7,13 @@ export interface SearchOptions {
   type?: string;
 }
 
+export type MapProviderType = 'amap' | 'google' | 'hotpepper';
+
+export interface RestaurantProviderRef {
+  provider: MapProviderType;
+  providerId: string;
+}
+
 export interface Restaurant {
   id: string;
   name: string;
@@ -41,9 +48,11 @@ export interface Restaurant {
   websiteUrl?: string;
   /** Provider used to fetch this result or enrich it */
   source?: 'google' | 'hotpepper' | 'amap' | 'hybrid';
+  /** Stable provider references retained across normalization and merge steps */
+  providerRefs?: RestaurantProviderRef[];
+  /** Google Places photo resource name, when photo proxying must stay server-side */
+  photoRef?: string;
 }
-
-export type MapProviderType = 'amap' | 'google' | 'hotpepper';
 
 export interface MapProvider {
   searchNearby(options: SearchOptions): Promise<Restaurant[]>;

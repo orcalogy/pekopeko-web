@@ -29,8 +29,13 @@ export function mergeResults(google: Restaurant[], hotpepper: Restaurant[]): Res
         budgetText: hpMatch.budgetText,
         capacity: hpMatch.capacity,
         features: hpMatch.features,
+        providerRefs: dedupeProviderRefs([
+          ...(g.providerRefs ?? []),
+          ...(hpMatch.providerRefs ?? []),
+        ]),
         // Prefer Google's data, fall back to HotPepper
         photoUrl: g.photoUrl || hpMatch.photoUrl,
+        photoRef: g.photoRef,
         openingHours: g.openingHours || hpMatch.openingHours,
         cuisineType: g.cuisineType || hpMatch.cuisineType,
         priceLevel: g.priceLevel ?? hpMatch.priceLevel,
@@ -89,4 +94,15 @@ function haversine(lat1: number, lng1: number, lat2: number, lng2: number): numb
     Math.sin(dLat / 2) ** 2 +
     Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function dedupeProviderRefs(providerRefs: NonNullable<Restaurant['providerRefs']>) {
+  const seen = new Set<string>();
+
+  return providerRefs.filter((ref) => {
+    const key = `${ref.provider}:${ref.providerId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
