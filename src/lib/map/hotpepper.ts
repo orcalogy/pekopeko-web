@@ -135,50 +135,88 @@ export async function searchHotpepperNearby(
   }
 
   const res = await fetch(`${HOTPEPPER_BASE}?${params}`);
+  if (!res.ok) {
+    throw new Error(`HotPepper search failed with status ${res.status}`);
+  }
+
   const data: HotpepperResponse = await res.json();
+
+  if (data.results?.error?.length) {
+    throw new Error(data.results.error[0]?.message || 'HotPepper search failed');
+  }
 
   if (!data.results?.shop) return [];
 
-  return data.results.shop.map((shop) => {
-    const shopLat = Number(shop.lat);
-    const shopLng = Number(shop.lng);
-    const distance = calculateDistance(options.lat, options.lng, shopLat, shopLng);
+  return data.results.shop.map((shop) => mapShop(shop, { lat: options.lat, lng: options.lng }));
+}
 
-    const isOpenNow = detectClosedToday(shop.close);
-
-    // Build opening hours lines
-    const openingHours: string[] = [];
-    if (shop.open) openingHours.push(shop.open);
-    if (shop.close && shop.close !== 'なし') openingHours.push(`定休日: ${shop.close}`);
-
-    // Coupon URL — prefer mobile (SP) version
-    const couponUrl = shop.coupon_urls?.sp || shop.coupon_urls?.pc || undefined;
-
-    return {
-      id: shop.id,
-      name: shop.name,
-      address: shop.address,
-      lat: shopLat,
-      lng: shopLng,
-      distance: Math.round(distance),
-      rating: undefined, // HotPepper doesn't provide ratings
-      priceLevel: parsePriceLevel(shop.budget),
-      isOpenNow,
-      openingHours: openingHours.length > 0 ? openingHours : undefined,
-      cuisineType: shop.genre?.name,
-      photoUrl: shop.photo?.pc?.l || shop.photo?.mobile?.l || undefined,
-      phone: undefined, // Not in standard response
-      placeUrl: `https://www.google.com/maps/dir/?api=1&destination=${shopLat},${shopLng}`,
-      detailUrl: shop.urls?.pc || undefined,
-      couponUrl: couponUrl || undefined,
-      accessInfo: shop.access || shop.mobile_access || undefined,
-      budgetText: shop.budget?.average || shop.budget?.name || undefined,
-      capacity: shop.capacity > 0 ? shop.capacity : undefined,
-      features: extractFeatures(shop),
-      menuUrl: shop.urls?.pc ? `${shop.urls.pc.replace(/\/$/, '')}/food/` : undefined,
-      source: 'hotpepper',
-    } satisfies Restaurant;
+export async function getHotpepperDetails(shopId: string, apiKey: string): Promise<Restaurant> {
+  const params = new URLSearchParams({
+    key: apiKey,
+    id: shopId,
+    count: '1',
+    format: 'json',
   });
+
+  const res = await fetch(`${HOTPEPPER_BASE}?${params}`);
+  if (!res.ok) {
+    throw new Error(`HotPepper details failed with status ${res.status}`);
+  }
+
+  const data: HotpepperResponse = await res.json();
+
+  if (data.results?.error?.length) {
+    throw new Error(data.results.error[0]?.message || 'HotPepper details failed');
+  }
+
+  const shop = data.results?.shop?.[0];
+  if (!shop) {
+    throw new Error('HotPepper details not found');
+  }
+
+  return mapShop(shop);
+}
+
+function mapShop(shop: HotpepperShop, origin?: { lat: number; lng: number }): Restaurant {
+  const shopLat = Number(shop.lat);
+  const shopLng = Number(shop.lng);
+  const distance = origin ? calculateDistance(origin.lat, origin.lng, shopLat, shopLng) : 0;
+
+  const isOpenNow = detectClosedToday(shop.close);
+
+  // Build opening hours lines
+  const openingHours: string[] = [];
+  if (shop.open) openingHours.push(shop.open);
+  if (shop.close && shop.close !== 'なし') openingHours.push(`定休日: ${shop.close}`);
+
+  // Coupon URL — prefer mobile (SP) version
+  const couponUrl = shop.coupon_urls?.sp || shop.coupon_urls?.pc || undefined;
+
+  return {
+    id: shop.id,
+    name: shop.name,
+    address: shop.address,
+    lat: shopLat,
+    lng: shopLng,
+    distance: Math.round(distance),
+    rating: undefined, // HotPepper doesn't provide ratings
+    priceLevel: parsePriceLevel(shop.budget),
+    isOpenNow,
+    openingHours: openingHours.length > 0 ? openingHours : undefined,
+    cuisineType: shop.genre?.name,
+    photoUrl: shop.photo?.pc?.l || shop.photo?.mobile?.l || undefined,
+    phone: undefined, // Not in standard response
+    placeUrl: `https://www.google.com/maps/dir/?api=1&destination=${shopLat},${shopLng}`,
+    detailUrl: shop.urls?.pc || undefined,
+    couponUrl: couponUrl || undefined,
+    accessInfo: shop.access || shop.mobile_access || undefined,
+    budgetText: shop.budget?.average || shop.budget?.name || undefined,
+    capacity: shop.capacity > 0 ? shop.capacity : undefined,
+    features: extractFeatures(shop),
+    menuUrl: shop.urls?.pc ? `${shop.urls.pc.replace(/\/$/, '')}/food/` : undefined,
+    source: 'hotpepper',
+    providerRefs: shop.id ? [{ provider: 'hotpepper', providerId: shop.id }] : undefined,
+  } satisfies Restaurant;
 }
 
 function calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {

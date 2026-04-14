@@ -2,6 +2,7 @@ import type { Restaurant, SearchOptions } from '@/types/restaurant';
 
 const GOOGLE_NEARBY_URL = 'https://places.googleapis.com/v1/places:searchNearby';
 const GOOGLE_TEXT_URL = 'https://places.googleapis.com/v1/places:searchText';
+const GOOGLE_PLACE_URL = 'https://places.googleapis.com/v1/places';
 
 interface GooglePlace {
   id: string;
@@ -20,8 +21,10 @@ interface GooglePlace {
   };
   photos?: { name: string }[];
   nationalPhoneNumber?: string;
+  internationalPhoneNumber?: string;
   primaryTypeDisplayName?: { text: string };
   websiteUri?: string;
+  googleMapsUri?: string;
 }
 
 interface GoogleResponse {
@@ -53,6 +56,22 @@ const FIELD_MASK = [
 ].join(',');
 
 const TEXT_FIELD_MASK = `${FIELD_MASK},nextPageToken`;
+const PLACE_DETAILS_FIELD_MASK = [
+  'id',
+  'displayName',
+  'formattedAddress',
+  'location',
+  'rating',
+  'priceLevel',
+  'currentOpeningHours',
+  'regularOpeningHours',
+  'photos',
+  'nationalPhoneNumber',
+  'internationalPhoneNumber',
+  'primaryTypeDisplayName',
+  'websiteUri',
+  'googleMapsUri',
+].join(',');
 
 export async function searchGoogleNearby(
   options: SearchOptions,
@@ -111,6 +130,14 @@ export async function searchGoogleNearby(
     }),
   ]);
 
+  if (!nearbyRes.ok) {
+    throw new Error(`Google nearby search failed with status ${nearbyRes.status}`);
+  }
+
+  if (!textRes.ok) {
+    throw new Error(`Google text search failed with status ${textRes.status}`);
+  }
+
   const [nearbyData, textData]: GoogleResponse[] = await Promise.all([
     nearbyRes.json(),
     textRes.json(),
@@ -140,6 +167,10 @@ async function searchTextWithPagination(
     body: JSON.stringify(body),
   });
 
+  if (!res.ok) {
+    throw new Error(`Google text search failed with status ${res.status}`);
+  }
+
   const data: GoogleResponse = await res.json();
   let places = mapPlaces(data.places ?? [], options);
 
@@ -150,6 +181,11 @@ async function searchTextWithPagination(
       headers: { ...headers, 'X-Goog-FieldMask': TEXT_FIELD_MASK },
       body: JSON.stringify({ ...body, pageToken: data.nextPageToken }),
     });
+
+    if (!page2Res.ok) {
+      throw new Error(`Google text pagination failed with status ${page2Res.status}`);
+    }
+
     const page2Data: GoogleResponse = await page2Res.json();
     places = [...places, ...mapPlaces(page2Data.places ?? [], options)];
   }
@@ -157,39 +193,68 @@ async function searchTextWithPagination(
   return places;
 }
 
-function mapPlaces(places: GooglePlace[], options: SearchOptions): Restaurant[] {
-  return places.map((place) => {
-    const lat = place.location?.latitude ?? 0;
-    const lng = place.location?.longitude ?? 0;
-    const distance = calculateDistance(options.lat, options.lng, lat, lng);
-    const hours = place.currentOpeningHours ?? place.regularOpeningHours;
-    const name = place.displayName?.text ?? '';
-    const placeId = place.id ?? '';
-
-    return {
-      id: placeId,
-      name,
-      address: place.formattedAddress ?? '',
-      lat,
-      lng,
-      distance: Math.round(distance),
-      rating: place.rating,
-      priceLevel: place.priceLevel ? PRICE_MAP[place.priceLevel] : undefined,
-      isOpenNow: hours?.openNow,
-      openingHours: hours?.weekdayDescriptions,
-      phone: place.nationalPhoneNumber,
-      cuisineType: place.primaryTypeDisplayName?.text,
-      photoUrl: place.photos?.[0]?.name
-        ? `/api/places/photo?ref=${encodeURIComponent(place.photos[0].name)}&maxWidth=800`
-        : undefined,
-      placeUrl: placeId
-        ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(name)}&destination_place_id=${placeId}`
-        : undefined,
-      websiteUrl: place.websiteUri,
-      menuUrl: place.websiteUri,
-      source: 'google',
-    } satisfies Restaurant;
+export async function getGooglePlaceDetails(
+  placeId: string,
+  apiKey: string,
+  languageCode = 'en',
+): Promise<Restaurant> {
+  const response = await fetch(`${GOOGLE_PLACE_URL}/${encodeURIComponent(placeId)}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': apiKey,
+      'X-Goog-FieldMask': PLACE_DETAILS_FIELD_MASK,
+      'Accept-Language': languageCode,
+    },
   });
+
+  if (!response.ok) {
+    throw new Error(`Google place details failed with status ${response.status}`);
+  }
+
+  const place = (await response.json()) as GooglePlace;
+  return mapPlace(place);
+}
+
+function mapPlaces(places: GooglePlace[], options: SearchOptions): Restaurant[] {
+  return places.map((place) => mapPlace(place, { lat: options.lat, lng: options.lng }));
+}
+
+function mapPlace(place: GooglePlace, origin?: { lat: number; lng: number }): Restaurant {
+  const lat = place.location?.latitude ?? 0;
+  const lng = place.location?.longitude ?? 0;
+  const distance = origin ? calculateDistance(origin.lat, origin.lng, lat, lng) : 0;
+  const hours = place.currentOpeningHours ?? place.regularOpeningHours;
+  const name = place.displayName?.text ?? '';
+  const placeId = place.id ?? '';
+  const photoRef = place.photos?.[0]?.name;
+
+  return {
+    id: placeId,
+    name,
+    address: place.formattedAddress ?? '',
+    lat,
+    lng,
+    distance: Math.round(distance),
+    rating: place.rating,
+    priceLevel: place.priceLevel ? PRICE_MAP[place.priceLevel] : undefined,
+    isOpenNow: hours?.openNow,
+    openingHours: hours?.weekdayDescriptions,
+    phone: place.nationalPhoneNumber ?? place.internationalPhoneNumber,
+    cuisineType: place.primaryTypeDisplayName?.text,
+    photoUrl: photoRef
+      ? `/api/places/photo?ref=${encodeURIComponent(photoRef)}&maxWidth=800`
+      : undefined,
+    photoRef,
+    placeUrl:
+      place.googleMapsUri ||
+      (placeId
+        ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(name)}&destination_place_id=${placeId}`
+        : undefined),
+    websiteUrl: place.websiteUri,
+    menuUrl: place.websiteUri,
+    source: 'google',
+    providerRefs: placeId ? [{ provider: 'google', providerId: placeId }] : undefined,
+  } satisfies Restaurant;
 }
 
 function calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
