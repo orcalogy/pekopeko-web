@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  Badge,
   Box,
   Button,
   Center,
@@ -24,9 +25,12 @@ import { SeasonBadge } from '@/components/filters/SeasonBadge';
 import { FoodCard } from '@/components/food/FoodCard';
 import { AppShell } from '@/components/layout/AppShell';
 import { FoodPicker } from '@/components/picker/FoodPicker';
+import { SmartSearchInput } from '@/components/search/SmartSearchInput';
 import { categories } from '@/data/categories';
 import { foods } from '@/data/foods';
 import { filterFoods } from '@/lib/food-filter';
+import { filterFoodsByKeyword, normalizeSearchQuery } from '@/lib/llm/keyword-fallback';
+import { useSemanticSearch } from '@/lib/llm/use-semantic-search';
 import { getCurrentSeason } from '@/lib/season-utils';
 import { getCurrentMealTime } from '@/lib/time-utils';
 import { useAppState } from '@/stores/app-state';
@@ -88,10 +92,42 @@ export default function Home() {
   } = useAppState();
 
   const [showResult, setShowResult] = useState(false);
+  const [cookQuery, setCookQuery] = useState('');
+  const [eatOutQuery, setEatOutQuery] = useState('');
+  const [cookSemanticIntent, setCookSemanticIntent] = useState<{
+    keyword?: string;
+    mood?: Food['moods'][number];
+    category?: string;
+    maxSpicy?: 0 | 1 | 2 | 3;
+    mealTime?: Food['mealTimes'][number];
+    cookableOnly?: boolean;
+    recommendedIds?: string[];
+  } | null>(null);
+  const [hasManualMoodOverride, setHasManualMoodOverride] = useState(false);
   const autoLocationRequestDone = useRef(false);
+  const {
+    semanticEnabled,
+    isAnalyzingCook,
+    isAnalyzingEatOut,
+    analyzeCookQuery,
+    analyzeEatOutQuery,
+  } = useSemanticSearch();
 
   const mealTime = getCurrentMealTime();
   const season = getCurrentSeason(lat);
+  const normalizedCookQuery = normalizeSearchQuery(cookQuery);
+  const normalizedEatOutQuery = normalizeSearchQuery(eatOutQuery);
+  const effectiveCookMood = hasManualMoodOverride
+    ? (selectedMood ?? undefined)
+    : (selectedMood ?? cookSemanticIntent?.mood ?? undefined);
+  const effectiveCookKeyword = cookSemanticIntent
+    ? (cookSemanticIntent.keyword ?? '')
+    : normalizedCookQuery;
+  const effectiveMealTime = cookSemanticIntent?.mealTime ?? mealTime;
+  const effectiveMaxSpicy =
+    cookSemanticIntent?.maxSpicy != null
+      ? Math.min(maxSpicy, cookSemanticIntent.maxSpicy)
+      : maxSpicy;
   const needsFreshLocation =
     mode === 'eatOut' &&
     (lat == null || lng == null || !locatedAt || Date.now() - locatedAt > LOCATION_MAX_AGE_MS);
@@ -100,14 +136,25 @@ export default function Home() {
   const candidates = useMemo(() => {
     const filtered = filterFoods(foods, {
       season,
-      mealTime,
-      mood: selectedMood ?? undefined,
-      cookableOnly: true,
-      maxSpicy,
+      mealTime: effectiveMealTime,
+      mood: effectiveCookMood,
+      category: cookSemanticIntent?.category,
+      cookableOnly: cookSemanticIntent?.cookableOnly ?? true,
+      maxSpicy: effectiveMaxSpicy,
       excludedIds: excludedFoodIds,
     });
-    return filtered.length > 0 ? filtered : foods.filter((f) => f.cookable);
-  }, [season, mealTime, selectedMood, maxSpicy, excludedFoodIds]);
+    const baseCandidates = filtered.length > 0 ? filtered : foods.filter((f) => f.cookable);
+
+    return filterFoodsByKeyword(baseCandidates, effectiveCookKeyword);
+  }, [
+    cookSemanticIntent,
+    effectiveCookKeyword,
+    effectiveCookMood,
+    effectiveMaxSpicy,
+    effectiveMealTime,
+    excludedFoodIds,
+    season,
+  ]);
 
   const handlePick = useCallback(() => {
     if (isSpinning) return;
@@ -148,6 +195,58 @@ export default function Home() {
     router.push('/eat-out?random=true');
   }, [router]);
 
+  const handleCookMoodChange = useCallback(
+    (mood: Food['moods'][number] | null) => {
+      setHasManualMoodOverride(true);
+      setMood(mood);
+    },
+    [setMood],
+  );
+
+  const handleCookIntentApply = useCallback(async () => {
+    if (!normalizedCookQuery || !semanticEnabled) return;
+
+    const result = await analyzeCookQuery(normalizedCookQuery);
+
+    if (result.mode === 'semantic' && result.intent) {
+      setCookSemanticIntent(result.intent);
+
+      if (result.intent.mood) {
+        setHasManualMoodOverride(false);
+        setMood(null);
+      }
+
+      return;
+    }
+
+    setCookSemanticIntent(null);
+  }, [analyzeCookQuery, normalizedCookQuery, semanticEnabled, setMood]);
+
+  const handleEatOutSearch = useCallback(async () => {
+    if (!normalizedEatOutQuery) return;
+
+    const params = new URLSearchParams();
+
+    if (semanticEnabled) {
+      const result = await analyzeEatOutQuery(normalizedEatOutQuery);
+      const inferredKeyword = result.intent?.keyword ?? normalizedEatOutQuery;
+
+      if (inferredKeyword) {
+        params.set('keyword', inferredKeyword);
+      }
+      if (result.intent?.category) {
+        params.set('category', result.intent.category);
+      }
+      if (result.intent?.openNow) {
+        params.set('openNow', 'true');
+      }
+    } else {
+      params.set('keyword', normalizedEatOutQuery);
+    }
+
+    router.push(`/eat-out?${params.toString()}`);
+  }, [analyzeEatOutQuery, normalizedEatOutQuery, router, semanticEnabled]);
+
   useEffect(() => {
     if (mode !== 'eatOut') {
       autoLocationRequestDone.current = false;
@@ -164,6 +263,17 @@ export default function Home() {
     autoLocationRequestDone.current = true;
     requestLocation();
   }, [mode, needsFreshLocation, requestLocation]);
+
+  useEffect(() => {
+    if (normalizedCookQuery !== undefined) {
+      setCookSemanticIntent(null);
+    }
+  }, [normalizedCookQuery]);
+
+  useEffect(() => {
+    if (semanticEnabled) return;
+    setCookSemanticIntent(null);
+  }, [semanticEnabled]);
 
   return (
     <AppShell>
@@ -234,13 +344,117 @@ export default function Home() {
                     </Text>
                     <Text size="xs" c="dimmed" mt={3}>
                       {locale === 'zh-CN'
-                        ? `已为你筛选出 ${candidates.length} 道菜`
+                        ? cookSemanticIntent
+                          ? `AI 已补充筛选，当前剩下 ${candidates.length} 道菜`
+                          : normalizedCookQuery
+                            ? `“${normalizedCookQuery}” 匹配到 ${candidates.length} 道菜`
+                            : `已为你筛选出 ${candidates.length} 道菜`
                         : locale === 'ja'
-                          ? `${candidates.length} 品が候補に選ばれています`
-                          : `${candidates.length} dishes currently match your filters`}
+                          ? cookSemanticIntent
+                            ? `AI で条件を補い、現在 ${candidates.length} 品まで絞り込みました`
+                            : normalizedCookQuery
+                              ? `「${normalizedCookQuery}」に一致した候補は ${candidates.length} 品です`
+                              : `${candidates.length} 品が候補に選ばれています`
+                          : cookSemanticIntent
+                            ? `AI added extra filters and narrowed this to ${candidates.length} dishes`
+                            : normalizedCookQuery
+                              ? `${candidates.length} dishes match "${normalizedCookQuery}"`
+                              : `${candidates.length} dishes currently match your filters`}
                     </Text>
                   </Box>
-                  <MoodSelector value={selectedMood} onChange={setMood} locale={locale} />
+                  <SmartSearchInput
+                    value={cookQuery}
+                    onChange={setCookQuery}
+                    onSubmit={semanticEnabled ? handleCookIntentApply : undefined}
+                    submitLabel={
+                      semanticEnabled
+                        ? locale === 'zh-CN'
+                          ? '理解一下'
+                          : locale === 'ja'
+                            ? '意味で絞る'
+                            : 'Apply AI'
+                        : undefined
+                    }
+                    loading={semanticEnabled && isAnalyzingCook}
+                    submitDisabled={!normalizedCookQuery}
+                    placeholder={
+                      locale === 'zh-CN'
+                        ? '再加一点关键词，比如：汤面、香辣、快手'
+                        : locale === 'ja'
+                          ? 'さらにキーワードを追加: 温かい麺、少し辛い、すぐ作れる'
+                          : 'Add keywords like warm noodles, spicy, or quick'
+                    }
+                    description={
+                      semanticEnabled
+                        ? locale === 'zh-CN'
+                          ? '先按关键词筛，再点右侧按钮让本地模型补充心情、餐时或分类筛选。'
+                          : locale === 'ja'
+                            ? 'まずキーワードで絞り込み、右のボタンでローカルモデルに気分や時間帯の条件を補わせます。'
+                            : 'Filter by keyword first, then use the button to let the local model add mood, mealtime, or category filters.'
+                        : locale === 'zh-CN'
+                          ? '按菜名、标签、分类或描述做本地关键词筛选。'
+                          : locale === 'ja'
+                            ? '料理名、タグ、カテゴリ、説明文からローカルで絞り込みます。'
+                            : 'Filter locally by dish name, tags, category, or description.'
+                    }
+                  />
+                  {cookSemanticIntent && (
+                    <Group gap="xs" wrap="wrap">
+                      {cookSemanticIntent.mood && !hasManualMoodOverride && (
+                        <Badge variant="light" color="orange" radius="xl">
+                          {locale === 'zh-CN'
+                            ? `AI 心情: ${cookSemanticIntent.mood}`
+                            : locale === 'ja'
+                              ? `AI 気分: ${cookSemanticIntent.mood}`
+                              : `AI mood: ${cookSemanticIntent.mood}`}
+                        </Badge>
+                      )}
+                      {cookSemanticIntent.category && (
+                        <Badge variant="light" color="grape" radius="xl">
+                          {categories.find(
+                            (category) => category.id === cookSemanticIntent.category,
+                          )?.name[locale] ?? cookSemanticIntent.category}
+                        </Badge>
+                      )}
+                      {cookSemanticIntent.mealTime && (
+                        <Badge variant="light" color="blue" radius="xl">
+                          {locale === 'zh-CN'
+                            ? `餐时: ${cookSemanticIntent.mealTime}`
+                            : locale === 'ja'
+                              ? `時間帯: ${cookSemanticIntent.mealTime}`
+                              : `Meal: ${cookSemanticIntent.mealTime}`}
+                        </Badge>
+                      )}
+                      {cookSemanticIntent.maxSpicy != null && (
+                        <Badge variant="light" color="red" radius="xl">
+                          {locale === 'zh-CN'
+                            ? `辣度 ≤ ${cookSemanticIntent.maxSpicy}`
+                            : locale === 'ja'
+                              ? `辛さ ≤ ${cookSemanticIntent.maxSpicy}`
+                              : `Spice <= ${cookSemanticIntent.maxSpicy}`}
+                        </Badge>
+                      )}
+                      {cookSemanticIntent.recommendedIds?.map((foodId) => {
+                        const food = foods.find((item) => item.id === foodId);
+                        if (!food) return null;
+
+                        return (
+                          <Badge key={foodId} variant="outline" color="orange" radius="xl">
+                            {food.name[locale]}
+                          </Badge>
+                        );
+                      })}
+                    </Group>
+                  )}
+                  <MoodSelector
+                    value={
+                      hasManualMoodOverride
+                        ? selectedMood
+                        : (selectedMood ?? cookSemanticIntent?.mood ?? null)
+                    }
+                    onChange={handleCookMoodChange}
+                    locale={locale}
+                  />
                 </Stack>
               </Box>
 
@@ -466,6 +680,37 @@ export default function Home() {
                       />
                     </Box>
                   )}
+
+                  <SmartSearchInput
+                    value={eatOutQuery}
+                    onChange={setEatOutQuery}
+                    onSubmit={handleEatOutSearch}
+                    loading={semanticEnabled && isAnalyzingEatOut}
+                    submitLabel={
+                      locale === 'zh-CN' ? '搜附近' : locale === 'ja' ? '近くを探す' : 'Search'
+                    }
+                    submitDisabled={!normalizedEatOutQuery}
+                    placeholder={
+                      locale === 'zh-CN'
+                        ? '比如：拉面、夜宵、咖啡馆'
+                        : locale === 'ja'
+                          ? '例: ラーメン、深夜ごはん、カフェ'
+                          : 'Try ramen, late-night food, or cafe'
+                    }
+                    description={
+                      semanticEnabled
+                        ? locale === 'zh-CN'
+                          ? '提交时会先用本地模型拆出关键词、分类和是否营业中，再跳到结果页。'
+                          : locale === 'ja'
+                            ? '送信時にローカルモデルでキーワード・カテゴリ・営業中条件を推定してから結果ページへ移動します。'
+                            : 'On submit, the local model infers keyword, category, and open-now intent before navigating to results.'
+                        : locale === 'zh-CN'
+                          ? '直接输入想吃的内容，跳转到附近结果页。'
+                          : locale === 'ja'
+                            ? '食べたいものを直接入力すると、近くの検索結果へ移動します。'
+                            : 'Type what you want and jump straight to nearby results.'
+                    }
+                  />
 
                   <Button
                     size="md"
