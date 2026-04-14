@@ -2,6 +2,7 @@
 
 import { MantineProvider } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
+import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { type AppLocale, detectPreferredLocale, getAppWindowTitle } from '@/lib/app-locale';
 import {
@@ -17,14 +18,21 @@ import { usePreferences } from '@/stores/preferences';
 const PREFERENCES_STORAGE_KEY = 'pekopeko-preferences';
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  const [hydrated, setHydrated] = useState(usePreferences.persist.hasHydrated());
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = usePreferences.persist.onFinishHydration(() => {
+    const persistApi = usePreferences.persist;
+
+    if (!persistApi) {
+      setHydrated(true);
+      return;
+    }
+
+    const unsubscribe = persistApi.onFinishHydration(() => {
       setHydrated(true);
     });
 
-    setHydrated(usePreferences.persist.hasHydrated());
+    setHydrated(persistApi.hasHydrated());
 
     return unsubscribe;
   }, []);
@@ -40,6 +48,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
 }
 
 function LlmRuntimeController({ hydrated }: { hydrated: boolean }) {
+  const pathname = usePathname();
   const llmEnabled = usePreferences((state) => state.llmEnabled);
   const llmModel = usePreferences((state) => state.llmModel);
   const setAvailability = useLlmStore((state) => state.setAvailability);
@@ -52,6 +61,10 @@ function LlmRuntimeController({ hydrated }: { hydrated: boolean }) {
     if (!isLlmFeatureAvailable()) {
       setAvailability('flag-disabled', 'LLM feature flag is turned off.');
       setRuntimeDisabled();
+      return;
+    }
+
+    if (!llmEnabled && pathname !== '/settings') {
       return;
     }
 
@@ -81,7 +94,7 @@ function LlmRuntimeController({ hydrated }: { hydrated: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [hydrated, setAvailability, setRuntimeDisabled]);
+  }, [hydrated, llmEnabled, pathname, setAvailability, setRuntimeDisabled]);
 
   useEffect(() => {
     if (!hydrated) return;
