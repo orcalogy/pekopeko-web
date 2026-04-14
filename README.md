@@ -59,7 +59,7 @@ pnpm dev
 - Local semantic search is optional and default-off:
   - app-level kill switch: `NEXT_PUBLIC_ENABLE_LLM=false`
   - user-level toggle: Settings > `AI Search`
-  - model runtime: `@mlc-ai/web-llm` with `Qwen3-0.6B-q4f16_1-MLC`
+  - model runtime: `@mlc-ai/web-llm` with `SmolLM2-135M-Instruct-q0f16-MLC`
   - failure mode: always falls back to deterministic keyword search
 
 ## Local LLM Search

@@ -1,7 +1,11 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { type AppLocale, defaultLocale } from '@/lib/app-locale';
-import { DEFAULT_LLM_MODEL, normalizeConfiguredLlmModel } from '@/lib/llm/availability';
+import {
+  DEFAULT_LLM_MODEL,
+  LEGACY_DEFAULT_LLM_MODELS,
+  normalizeConfiguredLlmModel,
+} from '@/lib/llm/availability';
 
 interface PreferencesState {
   locale: AppLocale;
@@ -64,9 +68,12 @@ export const usePreferences = create<PreferencesState>()(
     }),
     {
       name: 'pekopeko-preferences',
-      version: 1,
+      version: 2,
       migrate: (persistedState) => {
         const state = persistedState as Partial<PreferencesState> | undefined;
+        const normalizedPersistedModel = normalizeConfiguredLlmModel(state?.llmModel);
+        const shouldUseNewDefault =
+          !state?.llmModel || LEGACY_DEFAULT_LLM_MODELS.includes(normalizedPersistedModel);
 
         return {
           locale: state?.locale ?? defaultLocale,
@@ -78,7 +85,7 @@ export const usePreferences = create<PreferencesState>()(
           maxBudgetLevel: state?.maxBudgetLevel ?? 0,
           partySize: state?.partySize ?? 1,
           llmEnabled: state?.llmEnabled ?? false,
-          llmModel: normalizeConfiguredLlmModel(state?.llmModel ?? DEFAULT_LLM_MODEL),
+          llmModel: shouldUseNewDefault ? DEFAULT_LLM_MODEL : normalizedPersistedModel,
         } satisfies Omit<
           PreferencesState,
           | 'setLocale'

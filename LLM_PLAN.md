@@ -6,7 +6,7 @@ Status as of 2026-04-13:
 
 - Phases 1 through 5 are implemented in the app.
 - `@mlc-ai/web-llm` is integrated behind both the app-level flag and the user toggle.
-- The shipped model default is `Qwen3-0.6B-q4f16_1-MLC`.
+- The shipped model default is `SmolLM2-135M-Instruct-q0f16-MLC`.
 - Cook mode now supports semantic intent parsing plus deterministic keyword fallback.
 - Eat-out home search now supports semantic parsing into `keyword`, `category`, and `openNow`, then routes into `/eat-out`.
 - Settings now exposes support state, runtime state, model cache state, and a clear-cache action.
@@ -212,7 +212,7 @@ If budget/rating inference is added later, it should be wired as temporary per-s
 
 ## Model Selection
 
-**Primary model: `Qwen3-0.6B-q4f16_1-MLC`**
+**Primary model: `SmolLM2-135M-Instruct-q0f16-MLC`**
 
 Why it still fits:
 

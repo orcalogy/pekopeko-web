@@ -1,4 +1,5 @@
-export const DEFAULT_LLM_MODEL = 'Qwen3-0.6B-q4f16_1-MLC';
+export const DEFAULT_LLM_MODEL = 'SmolLM2-135M-Instruct-q0f16-MLC';
+export const LEGACY_DEFAULT_LLM_MODELS = ['Qwen3-0.6B-q4f16_1-MLC'];
 
 function isExplicitlyDisabled(value: string | undefined): boolean {
   if (!value) return false;
