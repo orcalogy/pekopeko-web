@@ -1,34 +1,39 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import {
+  buildRestaurantPreferenceSnapshot,
+  getRestaurantIdentityKey,
+} from '@/lib/recommendation/identity';
+import type { RestaurantPreferenceSnapshot } from '@/lib/recommendation/types';
 import type { Restaurant } from '@/types/restaurant';
 
-export interface VisitSnapshot {
-  cuisineType?: string;
-  features?: string[];
-  priceLevel?: number;
-  distance?: number;
-}
-
 export interface VisitRecord {
-  /** Place ID from Google/Amap */
-  id: string;
+  restaurantKey: string;
+  providerId?: string;
   name: string;
   /** Timestamps (ms) of each visit */
   visits: number[];
-  snapshot?: VisitSnapshot;
+  snapshot?: RestaurantPreferenceSnapshot;
 }
 
 export type VisitRestaurantInput = Pick<
   Restaurant,
-  'id' | 'name' | 'cuisineType' | 'features' | 'priceLevel' | 'distance'
+  | 'id'
+  | 'restaurantKey'
+  | 'name'
+  | 'cuisineType'
+  | 'features'
+  | 'priceLevel'
+  | 'distance'
+  | 'source'
 >;
 
 interface VisitedState {
   records: VisitRecord[];
   markVisited: (restaurant: VisitRestaurantInput) => void;
-  removeRecord: (id: string) => void;
+  removeRecord: (restaurantKey: string) => void;
   clearAll: () => void;
-  getRecord: (id: string) => VisitRecord | undefined;
+  getRecord: (restaurantKey: string) => VisitRecord | undefined;
 }
 
 export const useVisited = create<VisitedState>()(
@@ -38,20 +43,21 @@ export const useVisited = create<VisitedState>()(
 
       markVisited: (restaurant) =>
         set((state) => {
-          const existing = state.records.find((r) => r.id === restaurant.id);
-          const snapshot: VisitSnapshot = {
-            cuisineType: restaurant.cuisineType ?? undefined,
-            features: restaurant.features?.slice(0, 8) ?? undefined,
-            priceLevel: restaurant.priceLevel ?? undefined,
-            distance: restaurant.distance ?? undefined,
-          };
+          const restaurantKey = getRestaurantIdentityKey(restaurant);
+          if (!restaurantKey) {
+            return state;
+          }
+
+          const existing = state.records.find((record) => record.restaurantKey === restaurantKey);
+          const snapshot = buildRestaurantPreferenceSnapshot(restaurant);
 
           if (existing) {
             return {
               records: state.records.map((r) =>
-                r.id === restaurant.id
+                r.restaurantKey === restaurantKey
                   ? {
                       ...r,
+                      providerId: restaurant.id,
                       name: restaurant.name,
                       visits: [...r.visits, Date.now()],
                       snapshot: {
@@ -67,30 +73,59 @@ export const useVisited = create<VisitedState>()(
           return {
             records: [
               ...state.records,
-              { id: restaurant.id, name: restaurant.name, visits: [Date.now()], snapshot },
+              {
+                restaurantKey,
+                providerId: restaurant.id,
+                name: restaurant.name,
+                visits: [Date.now()],
+                snapshot,
+              },
             ],
           };
         }),
 
-      removeRecord: (id) =>
+      removeRecord: (restaurantKey) =>
         set((state) => ({
-          records: state.records.filter((r) => r.id !== id),
+          records: state.records.filter((record) => record.restaurantKey !== restaurantKey),
         })),
 
       clearAll: () => set({ records: [] }),
 
-      getRecord: (id) => get().records.find((r) => r.id === id),
+      getRecord: (restaurantKey) =>
+        get().records.find((record) => record.restaurantKey === restaurantKey),
     }),
     {
       name: 'pekopeko-visited',
-      version: 2,
+      version: 4,
       migrate: (persistedState) => {
         const state = persistedState as Partial<VisitedState> | undefined;
 
         return {
           records:
             state?.records?.map((record) => ({
-              id: record.id ?? '',
+              providerId:
+                typeof record.providerId === 'string'
+                  ? record.providerId
+                  : typeof (record as { id?: unknown }).id === 'string'
+                    ? (record as { id?: string }).id
+                    : undefined,
+              restaurantKey: getRestaurantIdentityKey({
+                id:
+                  typeof record.providerId === 'string'
+                    ? record.providerId
+                    : typeof (record as { id?: unknown }).id === 'string'
+                      ? (record as { id?: string }).id
+                      : undefined,
+                restaurantKey:
+                  typeof record.restaurantKey === 'string' ? record.restaurantKey : undefined,
+                source:
+                  record.snapshot?.source === 'google' ||
+                  record.snapshot?.source === 'hotpepper' ||
+                  record.snapshot?.source === 'amap' ||
+                  record.snapshot?.source === 'hybrid'
+                    ? record.snapshot.source
+                    : undefined,
+              }),
               name: record.name ?? '',
               visits: Array.isArray(record.visits)
                 ? record.visits.filter((value): value is number => typeof value === 'number')
@@ -114,6 +149,13 @@ export const useVisited = create<VisitedState>()(
                       distance:
                         typeof record.snapshot.distance === 'number'
                           ? record.snapshot.distance
+                          : undefined,
+                      source:
+                        record.snapshot.source === 'google' ||
+                        record.snapshot.source === 'hotpepper' ||
+                        record.snapshot.source === 'amap' ||
+                        record.snapshot.source === 'hybrid'
+                          ? record.snapshot.source
                           : undefined,
                     }
                   : undefined,
@@ -153,8 +195,20 @@ export function weightedRandomPick<T extends { id: string }>(
   items: T[],
   records: VisitRecord[],
 ): T {
-  const recordMap = new Map(records.map((r) => [r.id, r]));
-  const weights = items.map((item) => visitWeight(recordMap.get(item.id)));
+  const recordMap = new Map(records.map((record) => [record.restaurantKey, record]));
+  const weights = items.map((item) =>
+    visitWeight(
+      recordMap.get(
+        getRestaurantIdentityKey(
+          item as T & {
+            restaurantKey?: string | null;
+            source?: Restaurant['source'] | null;
+            providerRefs?: Restaurant['providerRefs'] | null;
+          },
+        ),
+      ),
+    ),
+  );
   const totalWeight = weights.reduce((sum, w) => sum + w, 0);
 
   let random = Math.random() * totalWeight;

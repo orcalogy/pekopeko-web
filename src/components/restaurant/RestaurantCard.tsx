@@ -2,6 +2,8 @@
 
 import { Badge, Box, Button, Card, Group, Image, Stack, Text } from '@mantine/core';
 import { motion } from 'framer-motion';
+import { localizeFeedbackKind, localizeRecommendationReason } from '@/lib/recommendation/reasons';
+import type { FeedbackKind, RecommendationReasonCode } from '@/lib/recommendation/types';
 import type { Locale } from '@/types/food';
 import type { Restaurant } from '@/types/restaurant';
 
@@ -10,11 +12,16 @@ interface RestaurantCardProps {
   locale: Locale;
   index: number;
   onMarkVisited?: (r: Restaurant) => void;
+  onLikeAfterVisit?: (r: Restaurant) => void;
+  onDislikeAfterVisit?: (r: Restaurant) => void;
+  onNotInterested?: (r: Restaurant) => void;
   isVisited?: boolean;
+  feedbackKind?: FeedbackKind | null;
   isActive?: boolean;
   isPicked?: boolean;
   semanticRank?: number | null;
   semanticReason?: string | null;
+  recommendationReasonCodes?: RecommendationReasonCode[];
   onActivate?: (restaurant: Restaurant) => void;
   rootRef?: (node: HTMLDivElement | null) => void;
 }
@@ -50,6 +57,24 @@ const markVisitedLabels: Record<Locale, string> = {
   'zh-CN': '标记已吃',
   ja: '食べた',
   en: 'Visited',
+};
+
+const likeLabels: Record<Locale, string> = {
+  'zh-CN': '这家不错',
+  ja: '気に入った',
+  en: 'Like',
+};
+
+const dislikeLabels: Record<Locale, string> = {
+  'zh-CN': '这家一般',
+  ja: '合わなかった',
+  en: 'Dislike',
+};
+
+const notInterestedLabels: Record<Locale, string> = {
+  'zh-CN': '先不考虑',
+  ja: '今回は見送り',
+  en: 'Skip',
 };
 
 const couponLabels: Record<Locale, string> = {
@@ -158,11 +183,16 @@ export function RestaurantCard({
   locale,
   index,
   onMarkVisited,
+  onLikeAfterVisit,
+  onDislikeAfterVisit,
+  onNotInterested,
   isVisited,
+  feedbackKind = null,
   isActive = false,
   isPicked = false,
   semanticRank = null,
   semanticReason = null,
+  recommendationReasonCodes = [],
   onActivate,
   rootRef,
 }: RestaurantCardProps) {
@@ -306,6 +336,21 @@ export function RestaurantCard({
                 {'✅'} {visitedLabels[locale]}
               </Badge>
             )}
+            {feedbackKind && (
+              <Badge
+                variant="light"
+                size="sm"
+                color={
+                  feedbackKind === 'liked_after_visit'
+                    ? 'teal'
+                    : feedbackKind === 'disliked_after_visit'
+                      ? 'red'
+                      : 'gray'
+                }
+              >
+                {localizeFeedbackKind(feedbackKind, locale)}
+              </Badge>
+            )}
           </Group>
 
           {/* Feature badges */}
@@ -314,6 +359,16 @@ export function RestaurantCard({
               {restaurant.features.slice(0, 4).map((f) => (
                 <Badge key={f} variant="default" size="xs">
                   {FEATURE_LABELS[f]?.[locale] ?? f}
+                </Badge>
+              ))}
+            </Group>
+          )}
+
+          {recommendationReasonCodes.length > 0 && (
+            <Group gap={4}>
+              {recommendationReasonCodes.map((reason) => (
+                <Badge key={reason} variant="light" size="xs" color="orange">
+                  {localizeRecommendationReason(reason, locale)}
                 </Badge>
               ))}
             </Group>
@@ -441,6 +496,44 @@ export function RestaurantCard({
               >
                 {'🍽️'} {markVisitedLabels[locale]}
               </Button>
+            )}
+            {isVisited ? (
+              <>
+                {onLikeAfterVisit && (
+                  <Button
+                    variant="light"
+                    color="teal"
+                    size="xs"
+                    radius="xl"
+                    onClick={() => onLikeAfterVisit(restaurant)}
+                  >
+                    {'👍'} {likeLabels[locale]}
+                  </Button>
+                )}
+                {onDislikeAfterVisit && (
+                  <Button
+                    variant="subtle"
+                    color="red"
+                    size="xs"
+                    radius="xl"
+                    onClick={() => onDislikeAfterVisit(restaurant)}
+                  >
+                    {'👎'} {dislikeLabels[locale]}
+                  </Button>
+                )}
+              </>
+            ) : (
+              onNotInterested && (
+                <Button
+                  variant="subtle"
+                  color="gray"
+                  size="xs"
+                  radius="xl"
+                  onClick={() => onNotInterested(restaurant)}
+                >
+                  {'🙈'} {notInterestedLabels[locale]}
+                </Button>
+              )
             )}
             {restaurant.couponUrl && (
               <Button

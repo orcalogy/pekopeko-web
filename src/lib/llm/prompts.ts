@@ -160,13 +160,14 @@ export function buildEatOutRerankPrompt({
 } {
   return {
     system:
-      'You rerank nearby restaurant candidates for a meal recommendation app. Return JSON only. Use only the listed candidate ids. Prefer places that match the request well, are currently open when requested, and are less recently visited when otherwise similar.',
+      'You rerank nearby restaurant candidates for a meal recommendation app. Return JSON only. Use only the listed candidate ids. Keep hard constraints satisfied, prefer strong request matches, use the taste profile and deterministic hints when they help, and avoid recently negative or suppressed items.',
     user: [
       `Write reason text in ${getReasonLanguage(locale)}.`,
       `Ranking goal: ${goalSummary}`,
       tasteProfileSummary ? `User taste profile: ${tasteProfileSummary}` : null,
       'Return at most 8 recommendations in best-first order.',
       'Each reason must be short, concrete, and based only on the listed candidate data.',
+      'Treat deterministic reasons and feedback signals as strong hints, not facts beyond the listed data.',
       'Candidate restaurants:',
       candidateCatalog,
     ]

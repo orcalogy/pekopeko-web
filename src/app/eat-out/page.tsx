@@ -46,6 +46,9 @@ import {
 } from '@/lib/llm/restaurant-taste-profile';
 import type { EatOutRerankEntry, EatOutSemanticIntent } from '@/lib/llm/types';
 import { useSemanticSearch } from '@/lib/llm/use-semantic-search';
+import { getRestaurantIdentityKey } from '@/lib/recommendation/identity';
+import { getLatestFeedbackByRestaurant } from '@/lib/recommendation/profile';
+import { rankRestaurants } from '@/lib/recommendation/scoring';
 import {
   formatSearchRadius,
   formatSearchRadiusMark,
@@ -57,6 +60,7 @@ import {
 } from '@/lib/search-radius';
 import { useLocation } from '@/stores/location';
 import { usePreferences } from '@/stores/preferences';
+import { useRestaurantFeedback } from '@/stores/restaurant-feedback';
 import { useVisited, weightedRandomPick } from '@/stores/visited';
 import type { Locale } from '@/types/food';
 import type { Restaurant } from '@/types/restaurant';
@@ -139,6 +143,7 @@ function EatOutContent() {
   const [aiRerankEntries, setAiRerankEntries] = useState<EatOutRerankEntry[]>([]);
 
   const { records: visitedRecords, markVisited } = useVisited();
+  const { events: feedbackEvents, addFeedback } = useRestaurantFeedback();
   const visitedRecordsRef = useRef(visitedRecords);
 
   useEffect(() => {
@@ -200,6 +205,20 @@ function EatOutContent() {
     effectiveSortBy,
     tempRequiredFeatures.join(','),
   ].join('|');
+  const recommendationStateSignature = useMemo(
+    () =>
+      [
+        visitedRecords
+          .map((record) => `${record.restaurantKey}:${record.visits.length}`)
+          .sort()
+          .join(','),
+        feedbackEvents
+          .map((event) => `${event.restaurantKey}:${event.kind}:${event.createdAt}`)
+          .sort()
+          .join(','),
+      ].join('|'),
+    [feedbackEvents, visitedRecords],
+  );
   const effectiveSearchRadiusKm = normalizeSearchRadiusKm(searchRadiusKm);
   const searchRadiusIndex = getSearchRadiusPresetIndex(effectiveSearchRadiusKm);
   const hasCoordinates = lat != null && lng != null;
@@ -208,8 +227,8 @@ function EatOutContent() {
     !hasCoordinates || !locatedAt || Date.now() - locatedAt > LOCATION_MAX_AGE_MS;
   const canUseStoredLocation = !needsFreshLocation && hasSearchLocation;
 
-  // Derive displayed list from raw data + client-side filters
-  const restaurants = useMemo(() => {
+  // Apply client-side hard filters before recommendation ranking.
+  const filteredRestaurants = useMemo(() => {
     let list = allRestaurants;
 
     if (effectiveMinRating > 0) {
@@ -253,6 +272,37 @@ function EatOutContent() {
     tempRequiredFeatures,
   ]);
 
+  const rankedRestaurants = useMemo(
+    () =>
+      rankRestaurants({
+        restaurants: filteredRestaurants,
+        visitRecords: visitedRecords,
+        feedbackEvents,
+        preferredSort: effectiveSortBy,
+        keyword: effectiveKeyword,
+      }),
+    [effectiveKeyword, effectiveSortBy, feedbackEvents, filteredRestaurants, visitedRecords],
+  );
+
+  const restaurants = useMemo(
+    () => rankedRestaurants.filter((entry) => !entry.suppressed).map((entry) => entry.restaurant),
+    [rankedRestaurants],
+  );
+
+  const deterministicReasonsById = useMemo(
+    () => new Map(rankedRestaurants.map((entry) => [entry.identityKey, entry.reasons] as const)),
+    [rankedRestaurants],
+  );
+
+  const visitedByRestaurantKey = useMemo(
+    () => new Map(visitedRecords.map((record) => [record.restaurantKey, record] as const)),
+    [visitedRecords],
+  );
+  const latestFeedbackByRestaurantKey = useMemo(
+    () => getLatestFeedbackByRestaurant(feedbackEvents),
+    [feedbackEvents],
+  );
+
   const displayRestaurants = useMemo(() => {
     const rankedRestaurants =
       aiRerankEntries.length === 0
@@ -260,18 +310,21 @@ function EatOutContent() {
         : (() => {
             const rankIndex = new Map(aiRerankEntries.map((entry, index) => [entry.id, index]));
             const originalIndex = new Map(
-              restaurants.map((restaurant, index) => [restaurant.id, index]),
+              restaurants.map((restaurant, index) => [getRestaurantIdentityKey(restaurant), index]),
             );
 
             return [...restaurants].sort((a, b) => {
-              const aRank = rankIndex.get(a.id);
-              const bRank = rankIndex.get(b.id);
+              const aRank = rankIndex.get(getRestaurantIdentityKey(a));
+              const bRank = rankIndex.get(getRestaurantIdentityKey(b));
 
               if (aRank != null && bRank != null) return aRank - bRank;
               if (aRank != null) return -1;
               if (bRank != null) return 1;
 
-              return (originalIndex.get(a.id) ?? 0) - (originalIndex.get(b.id) ?? 0);
+              return (
+                (originalIndex.get(getRestaurantIdentityKey(a)) ?? 0) -
+                (originalIndex.get(getRestaurantIdentityKey(b)) ?? 0)
+              );
             });
           })();
 
@@ -290,7 +343,7 @@ function EatOutContent() {
   const randomCandidateSignature = useMemo(
     () =>
       [...restaurants]
-        .map((restaurant) => restaurant.id)
+        .map((restaurant) => getRestaurantIdentityKey(restaurant))
         .sort()
         .join('|'),
     [restaurants],
@@ -509,6 +562,49 @@ function EatOutContent() {
     [markVisited],
   );
 
+  const feedbackContext = useMemo(
+    () => ({
+      queryKeyword: effectiveKeyword ?? undefined,
+      categoryId: effectiveCategoryId ?? undefined,
+      openNow: effectiveOpenOnly,
+      partySize: effectivePartySize > 1 ? effectivePartySize : undefined,
+    }),
+    [effectiveCategoryId, effectiveKeyword, effectiveOpenOnly, effectivePartySize],
+  );
+
+  const handleLikeAfterVisit = useCallback(
+    (restaurant: Restaurant) => {
+      addFeedback({
+        restaurant,
+        kind: 'liked_after_visit',
+        context: feedbackContext,
+      });
+    },
+    [addFeedback, feedbackContext],
+  );
+
+  const handleDislikeAfterVisit = useCallback(
+    (restaurant: Restaurant) => {
+      addFeedback({
+        restaurant,
+        kind: 'disliked_after_visit',
+        context: feedbackContext,
+      });
+    },
+    [addFeedback, feedbackContext],
+  );
+
+  const handleNotInterested = useCallback(
+    (restaurant: Restaurant) => {
+      addFeedback({
+        restaurant,
+        kind: 'not_interested',
+        context: feedbackContext,
+      });
+    },
+    [addFeedback, feedbackContext],
+  );
+
   const handleRefineSearch = useCallback(async () => {
     const normalizedRefineQuery = normalizeSearchQuery(refineQuery);
     if (!normalizedRefineQuery) return;
@@ -555,8 +651,8 @@ function EatOutContent() {
   }, []);
 
   const tasteProfile = useMemo(
-    () => deriveRestaurantTasteProfile(visitedRecords),
-    [visitedRecords],
+    () => deriveRestaurantTasteProfile(visitedRecords, feedbackEvents),
+    [feedbackEvents, visitedRecords],
   );
   const tasteProfilePromptSummary = useMemo(
     () => buildRestaurantTasteProfilePromptSummary(tasteProfile),
@@ -565,9 +661,12 @@ function EatOutContent() {
   const hasTasteProfileSignals =
     !!tasteProfile &&
     (tasteProfile.topCuisines.length > 0 ||
+      tasteProfile.avoidedCuisines.length > 0 ||
       tasteProfile.topFeatures.length > 0 ||
+      tasteProfile.avoidedFeatures.length > 0 ||
       tasteProfile.preferredPriceLevel != null ||
-      tasteProfile.typicalDistanceMeters != null);
+      tasteProfile.typicalDistanceMeters != null ||
+      tasteProfile.totalFeedbackEvents > 0);
 
   const aiRerankGoalSummary = useMemo(() => {
     const parts: string[] = [];
@@ -594,7 +693,8 @@ function EatOutContent() {
       parts.push(`required features: ${tempRequiredFeatures.join(', ')}`);
     }
 
-    parts.push('prefer places not visited very recently when otherwise similar');
+    parts.push('prefer strong taste-profile matches when otherwise similar');
+    parts.push('avoid recently negative or dismissed places');
 
     return parts.join('; ');
   }, [
@@ -615,14 +715,21 @@ function EatOutContent() {
     const result = await rerankEatOutResults({
       goalSummary: aiRerankGoalSummary,
       tasteProfileSummary: tasteProfilePromptSummary,
-      candidateCatalog: formatRestaurantsForRerank(aiRerankCandidates, visitedRecords),
-      validIds: aiRerankCandidates.map((restaurant) => restaurant.id),
+      candidateCatalog: formatRestaurantsForRerank({
+        restaurants: aiRerankCandidates,
+        visitRecords: visitedRecords,
+        feedbackEvents,
+        deterministicReasonsById,
+      }),
+      validIds: aiRerankCandidates.map((restaurant) => getRestaurantIdentityKey(restaurant)),
     });
 
     setAiRerankEntries(result.mode === 'semantic' ? result.items : []);
   }, [
     aiRerankCandidates,
     aiRerankGoalSummary,
+    deterministicReasonsById,
+    feedbackEvents,
     rerankEatOutResults,
     semanticEnabled,
     tasteProfilePromptSummary,
@@ -631,8 +738,9 @@ function EatOutContent() {
 
   useEffect(() => {
     void aiRerankResetKey;
+    void recommendationStateSignature;
     setAiRerankEntries([]);
-  }, [aiRerankResetKey]);
+  }, [aiRerankResetKey, recommendationStateSignature]);
 
   // Request a fresh location once per mount when persisted coordinates are missing or stale.
   useEffect(() => {
@@ -674,6 +782,15 @@ function EatOutContent() {
   const activeRestaurant =
     displayRestaurants.find((restaurant) => restaurant.id === activeRestaurantId) ??
     pickedRestaurant;
+  const pickedRestaurantIdentityKey = pickedRestaurant
+    ? getRestaurantIdentityKey(pickedRestaurant)
+    : null;
+  const pickedRestaurantLatestFeedback = pickedRestaurantIdentityKey
+    ? latestFeedbackByRestaurantKey.get(pickedRestaurantIdentityKey)
+    : null;
+  const pickedRestaurantIsVisited = pickedRestaurantIdentityKey
+    ? visitedByRestaurantKey.has(pickedRestaurantIdentityKey)
+    : false;
 
   return (
     <AppShell>
@@ -1338,9 +1455,19 @@ function EatOutContent() {
                       </Group>
                     )}
 
-                    {visitedRecords.find((v) => v.id === pickedRestaurant.id) && (
+                    {pickedRestaurantIsVisited && (
                       <Badge variant="light" color="grape" size="sm" w="fit-content">
                         {'✅'} {l.visited}
+                      </Badge>
+                    )}
+                    {pickedRestaurantLatestFeedback && (
+                      <Badge
+                        variant="light"
+                        color={getFeedbackBadgeColor(pickedRestaurantLatestFeedback.kind)}
+                        size="sm"
+                        w="fit-content"
+                      >
+                        {l.feedbackLabel(pickedRestaurantLatestFeedback.kind)}
                       </Badge>
                     )}
 
@@ -1375,6 +1502,38 @@ function EatOutContent() {
                       >
                         {'🍽️'} {l.markVisited}
                       </Button>
+                      {pickedRestaurantIsVisited ? (
+                        <>
+                          <Button
+                            variant="light"
+                            color="teal"
+                            size="xs"
+                            radius="xl"
+                            onClick={() => handleLikeAfterVisit(pickedRestaurant)}
+                          >
+                            {'👍'} {l.likeAfterVisit}
+                          </Button>
+                          <Button
+                            variant="subtle"
+                            color="red"
+                            size="xs"
+                            radius="xl"
+                            onClick={() => handleDislikeAfterVisit(pickedRestaurant)}
+                          >
+                            {'👎'} {l.dislikeAfterVisit}
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          variant="subtle"
+                          color="gray"
+                          size="xs"
+                          radius="xl"
+                          onClick={() => handleNotInterested(pickedRestaurant)}
+                        >
+                          {'🙈'} {l.notInterested}
+                        </Button>
+                      )}
                       {pickedRestaurant.couponUrl && (
                         <Button
                           variant="light"
@@ -1503,6 +1662,21 @@ function EatOutContent() {
                             {FEATURE_LABELS[feature]?.[locale] ?? feature}
                           </Badge>
                         ))}
+                        {tasteProfile.avoidedCuisines.map((cuisine) => (
+                          <Badge key={`avoid-${cuisine}`} variant="light" color="red" radius="xl">
+                            {l.avoidCuisineBadge(cuisine)}
+                          </Badge>
+                        ))}
+                        {tasteProfile.avoidedFeatures.map((feature) => (
+                          <Badge
+                            key={`avoid-feature-${feature}`}
+                            variant="light"
+                            color="red"
+                            radius="xl"
+                          >
+                            {l.avoidFeatureBadge(FEATURE_LABELS[feature]?.[locale] ?? feature)}
+                          </Badge>
+                        ))}
                         {tasteProfile.preferredPriceLevel != null && (
                           <Badge variant="light" color="green" radius="xl">
                             {l.tasteBudgetBadge(tasteProfile.preferredPriceLevel)}
@@ -1511,6 +1685,11 @@ function EatOutContent() {
                         {tasteProfile.typicalDistanceMeters != null && (
                           <Badge variant="light" color="blue" radius="xl">
                             {l.tasteDistanceBadge(tasteProfile.typicalDistanceMeters)}
+                          </Badge>
+                        )}
+                        {tasteProfile.totalFeedbackEvents > 0 && (
+                          <Badge variant="light" color="gray" radius="xl">
+                            {l.feedbackCountBadge(tasteProfile.totalFeedbackEvents)}
                           </Badge>
                         )}
                       </Group>
@@ -1553,11 +1732,23 @@ function EatOutContent() {
                         locale={locale}
                         index={i}
                         onMarkVisited={handleMarkVisited}
-                        isVisited={visitedRecords.some((v) => v.id === r.id)}
+                        onLikeAfterVisit={handleLikeAfterVisit}
+                        onDislikeAfterVisit={handleDislikeAfterVisit}
+                        onNotInterested={handleNotInterested}
+                        isVisited={visitedByRestaurantKey.has(getRestaurantIdentityKey(r))}
+                        feedbackKind={
+                          latestFeedbackByRestaurantKey.get(getRestaurantIdentityKey(r))?.kind ??
+                          null
+                        }
                         isActive={r.id === activeRestaurantId}
                         isPicked={isRandomMode && r.id === pickedRestaurant?.id}
-                        semanticRank={aiRerankById.get(r.id)?.rank ?? null}
-                        semanticReason={aiRerankById.get(r.id)?.reason ?? null}
+                        semanticRank={aiRerankById.get(getRestaurantIdentityKey(r))?.rank ?? null}
+                        semanticReason={
+                          aiRerankById.get(getRestaurantIdentityKey(r))?.reason ?? null
+                        }
+                        recommendationReasonCodes={
+                          deterministicReasonsById.get(getRestaurantIdentityKey(r)) ?? []
+                        }
                         onActivate={(restaurant) => setActiveRestaurantId(restaurant.id)}
                         rootRef={(node) => {
                           restaurantCardRefs.current[r.id] = node;
@@ -1740,7 +1931,30 @@ function useLabels(locale: Locale) {
       navigate: locale === 'zh-CN' ? '导航过去' : locale === 'ja' ? 'ナビで行く' : 'Navigate',
       another: locale === 'zh-CN' ? '换一家' : locale === 'ja' ? '別のお店' : 'Another',
       markVisited: locale === 'zh-CN' ? '标记已吃' : locale === 'ja' ? '食べた' : 'Mark visited',
+      likeAfterVisit: locale === 'zh-CN' ? '这家不错' : locale === 'ja' ? '気に入った' : 'Like',
+      dislikeAfterVisit:
+        locale === 'zh-CN' ? '这家一般' : locale === 'ja' ? '合わなかった' : 'Dislike',
+      notInterested:
+        locale === 'zh-CN' ? '先不考虑' : locale === 'ja' ? '今回は見送り' : 'Not interested',
       visited: locale === 'zh-CN' ? '吃过' : locale === 'ja' ? '訪問済' : 'Visited',
+      feedbackLabel: (kind: 'liked_after_visit' | 'disliked_after_visit' | 'not_interested') =>
+        kind === 'liked_after_visit'
+          ? locale === 'zh-CN'
+            ? '喜欢'
+            : locale === 'ja'
+              ? '気に入った'
+              : 'Liked'
+          : kind === 'disliked_after_visit'
+            ? locale === 'zh-CN'
+              ? '不太喜欢'
+              : locale === 'ja'
+                ? '合わなかった'
+                : 'Disliked'
+            : locale === 'zh-CN'
+              ? '暂不考虑'
+              : locale === 'ja'
+                ? '今回は見送り'
+                : 'Not interested',
       coupon: locale === 'zh-CN' ? '优惠券' : locale === 'ja' ? 'クーポン' : 'Coupon',
       detail: locale === 'zh-CN' ? '详情' : locale === 'ja' ? '詳細' : 'Details',
       menu: locale === 'zh-CN' ? '菜单' : locale === 'ja' ? 'メニュー' : 'Menu',
@@ -1779,6 +1993,24 @@ function useLabels(locale: Locale) {
           : locale === 'ja'
             ? `よく選ぶ ${'¥'.repeat(level)}`
             : `Usually ${'¥'.repeat(level)}`,
+      avoidCuisineBadge: (cuisine: string) =>
+        locale === 'zh-CN'
+          ? `少推 ${cuisine}`
+          : locale === 'ja'
+            ? `${cuisine} は控えめ`
+            : `Avoids ${cuisine}`,
+      avoidFeatureBadge: (feature: string) =>
+        locale === 'zh-CN'
+          ? `少推 ${feature}`
+          : locale === 'ja'
+            ? `${feature} は控えめ`
+            : `Avoids ${feature}`,
+      feedbackCountBadge: (count: number) =>
+        locale === 'zh-CN'
+          ? `${count} 个反馈`
+          : locale === 'ja'
+            ? `フィードバック ${count} 件`
+            : `${count} feedback events`,
       tasteDistanceBadge: (meters: number) =>
         locale === 'zh-CN'
           ? `常去 ${meters >= 1000 ? `${(meters / 1000).toFixed(1)}km` : `${meters}m`}`
@@ -1824,6 +2056,19 @@ function getSourceBadgeColor(source: NonNullable<Restaurant['source']>) {
       return 'cyan';
     case 'hybrid':
       return 'orange';
+  }
+}
+
+function getFeedbackBadgeColor(
+  kind: 'liked_after_visit' | 'disliked_after_visit' | 'not_interested',
+) {
+  switch (kind) {
+    case 'liked_after_visit':
+      return 'teal';
+    case 'disliked_after_visit':
+      return 'red';
+    case 'not_interested':
+      return 'gray';
   }
 }
 

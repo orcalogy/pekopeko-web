@@ -33,6 +33,7 @@ import {
 import { useAppState } from '@/stores/app-state';
 import { useLlmStore } from '@/stores/llm';
 import { usePreferences } from '@/stores/preferences';
+import { useRestaurantFeedback } from '@/stores/restaurant-feedback';
 import { useVisited } from '@/stores/visited';
 
 export default function SettingsPage() {
@@ -58,6 +59,7 @@ export default function SettingsPage() {
     removeRecord: removeVisited,
     clearAll: clearVisited,
   } = useVisited();
+  const { events: feedbackEvents, clearAll: clearFeedback } = useRestaurantFeedback();
   const { setColorScheme } = useMantineColorScheme();
   const llmAvailability = useLlmStore((state) => state.availability);
   const llmRuntimeState = useLlmStore((state) => state.runtimeState);
@@ -146,6 +148,14 @@ export default function SettingsPage() {
     clearVisited: { 'zh-CN': '清除记录', ja: '記録をクリア', en: 'Clear All' },
     visitedCount: { 'zh-CN': '家店', ja: '件のお店', en: 'restaurants' },
     visitTimes: { 'zh-CN': '次', ja: '回', en: 'visits' },
+    feedback: { 'zh-CN': '推荐反馈', ja: 'おすすめフィードバック', en: 'Recommendation Feedback' },
+    feedbackCount: { 'zh-CN': '条反馈', ja: '件のフィードバック', en: 'feedback events' },
+    clearFeedback: { 'zh-CN': '清除反馈', ja: 'フィードバックをクリア', en: 'Clear Feedback' },
+    clearRecommendationData: {
+      'zh-CN': '清除全部推荐数据',
+      ja: 'おすすめデータを全消去',
+      en: 'Clear All Recommendation Data',
+    },
     remove: { 'zh-CN': '移除', ja: '削除', en: 'Remove' },
   } as const;
 
@@ -238,6 +248,11 @@ export default function SettingsPage() {
     } finally {
       setClearingCache(false);
     }
+  };
+
+  const handleClearRecommendationData = () => {
+    clearVisited();
+    clearFeedback();
   };
 
   return (
@@ -489,7 +504,7 @@ export default function SettingsPage() {
             {visitedRecords.length > 0 && (
               <Stack gap="xs">
                 {visitedRecords.map((record) => (
-                  <Group key={record.id} justify="space-between" align="center">
+                  <Group key={record.restaurantKey} justify="space-between" align="center">
                     <Box style={{ flex: 1, minWidth: 0 }}>
                       <Text size="sm" lineClamp={1}>
                         {record.name}
@@ -502,7 +517,7 @@ export default function SettingsPage() {
                       variant="subtle"
                       color="red"
                       size="xs"
-                      onClick={() => removeVisited(record.id)}
+                      onClick={() => removeVisited(record.restaurantKey)}
                     >
                       {l('remove')}
                     </Button>
@@ -510,6 +525,37 @@ export default function SettingsPage() {
                 ))}
               </Stack>
             )}
+          </Card>
+
+          <Card padding="md" radius="md" withBorder>
+            <Stack gap="sm">
+              <Group justify="space-between" align="center">
+                <Box>
+                  <Text fw={600}>{l('feedback')}</Text>
+                  <Text size="sm" c="dimmed">
+                    {feedbackEvents.length} {l('feedbackCount')}
+                  </Text>
+                </Box>
+                <Button
+                  variant="light"
+                  color="red"
+                  size="xs"
+                  onClick={clearFeedback}
+                  disabled={feedbackEvents.length === 0}
+                >
+                  {l('clearFeedback')}
+                </Button>
+              </Group>
+              <Button
+                variant="subtle"
+                color="red"
+                size="xs"
+                onClick={handleClearRecommendationData}
+                disabled={visitedRecords.length === 0 && feedbackEvents.length === 0}
+              >
+                {l('clearRecommendationData')}
+              </Button>
+            </Stack>
           </Card>
         </Stack>
       </Container>
