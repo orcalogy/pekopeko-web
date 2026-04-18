@@ -148,9 +148,11 @@ export function serializeApiRestaurant(record: ApiRestaurantRecord) {
 
 export function toCompatibilityRestaurant(record: ApiRestaurantRecord): Restaurant {
   const { restaurantKey, providerRefs, ...restaurant } = record;
-  void restaurantKey;
   void providerRefs;
-  return restaurant;
+  return {
+    ...restaurant,
+    restaurantKey,
+  };
 }
 
 export async function getRestaurantDetails(params: {
@@ -169,14 +171,24 @@ export async function getRestaurantDetails(params: {
 
   const locale = resolveRequestLocale(params.locale, params.acceptLanguage);
   const snapshot = payload.snapshot ? restoreRestaurantFromSnapshot(payload.snapshot) : null;
-  const fresh = await fetchRestaurantDetailsByRefs(payload, locale);
+  let fresh: Restaurant | null = null;
+  let refreshError: ApiRouteError | null = null;
+
+  try {
+    fresh = await fetchRestaurantDetailsByRefs(payload, locale);
+  } catch (error) {
+    refreshError = normalizeDetailRefreshError(error);
+  }
 
   if (!fresh && !snapshot) {
-    throw new ApiRouteError({
-      status: 404,
-      code: 'not_found',
-      message: 'Restaurant not found',
-    });
+    throw (
+      refreshError ??
+      new ApiRouteError({
+        status: 404,
+        code: 'not_found',
+        message: 'Restaurant not found',
+      })
+    );
   }
 
   const restaurant = coalesceRestaurantDetails({
@@ -454,9 +466,12 @@ async function fetchRestaurantDetailsByRefs(
         result.status === 'fulfilled',
     )
     .map((result) => result.value);
+  const failures = detailResults
+    .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    .map((result) => normalizeDetailRefreshError(result.reason));
 
   if (successes.length === 0) {
-    return null;
+    throw selectDetailRefreshError(failures);
   }
 
   const googleRestaurant = successes.find((entry) => entry.provider === 'google')?.restaurant;
@@ -478,43 +493,47 @@ async function fetchSingleRestaurantDetail(
   ref: ApiProviderRef,
   locale: AppLocale,
 ): Promise<Restaurant> {
-  switch (ref.provider) {
-    case 'google': {
-      const key = process.env.GOOGLE_MAPS_SERVER_KEY;
-      if (!key) {
-        throw new ApiRouteError({
-          status: 503,
-          code: 'provider_unavailable',
-          message: 'Google Maps API key not configured',
-        });
-      }
+  try {
+    switch (ref.provider) {
+      case 'google': {
+        const key = process.env.GOOGLE_MAPS_SERVER_KEY;
+        if (!key) {
+          throw new ApiRouteError({
+            status: 503,
+            code: 'provider_unavailable',
+            message: 'Google Maps API key not configured',
+          });
+        }
 
-      return getGooglePlaceDetails(ref.providerId, key, GOOGLE_LANGUAGE_CODE[locale]);
-    }
-    case 'hotpepper': {
-      const key = process.env.HOTPEPPER_API_KEY;
-      if (!key) {
-        throw new ApiRouteError({
-          status: 503,
-          code: 'provider_unavailable',
-          message: 'HotPepper API key not configured',
-        });
+        return await getGooglePlaceDetails(ref.providerId, key, GOOGLE_LANGUAGE_CODE[locale]);
       }
+      case 'hotpepper': {
+        const key = process.env.HOTPEPPER_API_KEY;
+        if (!key) {
+          throw new ApiRouteError({
+            status: 503,
+            code: 'provider_unavailable',
+            message: 'HotPepper API key not configured',
+          });
+        }
 
-      return getHotpepperDetails(ref.providerId, key);
-    }
-    case 'amap': {
-      const key = process.env.AMAP_SERVER_KEY;
-      if (!key) {
-        throw new ApiRouteError({
-          status: 503,
-          code: 'provider_unavailable',
-          message: 'Amap API key not configured',
-        });
+        return await getHotpepperDetails(ref.providerId, key);
       }
+      case 'amap': {
+        const key = process.env.AMAP_SERVER_KEY;
+        if (!key) {
+          throw new ApiRouteError({
+            status: 503,
+            code: 'provider_unavailable',
+            message: 'Amap API key not configured',
+          });
+        }
 
-      return getAmapPlaceDetails(ref.providerId, key);
+        return await getAmapPlaceDetails(ref.providerId, key);
+      }
     }
+  } catch (error) {
+    throw normalizeProviderDetailError(ref.provider, error);
   }
 }
 
@@ -730,6 +749,79 @@ function decodePageToken(value: string | null | undefined): number {
 function getPrimaryProviderForSource(source: ApiSource): MapProviderType {
   if (source === 'hotpepper' || source === 'amap') return source;
   return 'google';
+}
+
+function normalizeProviderDetailError(provider: MapProviderType, error: unknown): ApiRouteError {
+  if (error instanceof ApiRouteError) {
+    return error;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  const normalizedMessage = message.toLowerCase();
+
+  if (normalizedMessage.includes('not found') || normalizedMessage.includes('status 404')) {
+    return new ApiRouteError({
+      status: 404,
+      code: 'not_found',
+      message: 'Restaurant not found',
+      details: { provider },
+    });
+  }
+
+  if (normalizedMessage.includes('status 429')) {
+    return new ApiRouteError({
+      status: 429,
+      code: 'rate_limited',
+      message: `${provider} details request was rate limited`,
+      details: { provider },
+    });
+  }
+
+  return new ApiRouteError({
+    status: 502,
+    code: 'upstream_error',
+    message: `${provider} details fetch failed`,
+    details: { provider },
+  });
+}
+
+function normalizeDetailRefreshError(error: unknown): ApiRouteError {
+  return error instanceof ApiRouteError
+    ? error
+    : new ApiRouteError({
+        status: 502,
+        code: 'upstream_error',
+        message: 'Restaurant details refresh failed',
+      });
+}
+
+function selectDetailRefreshError(errors: ApiRouteError[]): ApiRouteError {
+  if (errors.length === 0) {
+    return new ApiRouteError({
+      status: 404,
+      code: 'not_found',
+      message: 'Restaurant not found',
+    });
+  }
+
+  if (errors.every((error) => error.code === 'not_found')) {
+    return new ApiRouteError({
+      status: 404,
+      code: 'not_found',
+      message: 'Restaurant not found',
+    });
+  }
+
+  return (
+    errors.find(
+      (error) =>
+        error.code === 'provider_unavailable' ||
+        error.code === 'quota_exhausted' ||
+        error.code === 'rate_limited',
+    ) ??
+    errors.find((error) => error.code === 'upstream_error') ??
+    errors[0]
+  );
 }
 
 function dedupeProviderRefs(providerRefs: ApiProviderRef[]): ApiProviderRef[] {

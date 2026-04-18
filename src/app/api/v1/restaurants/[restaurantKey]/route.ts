@@ -19,6 +19,7 @@ export async function GET(
     return jsonResponse(serializeApiRestaurant(restaurant), {
       requestId,
       cacheControl: DETAILS_CACHE_CONTROL,
+      vary: ['Accept-Language'],
     });
   } catch (error) {
     return errorResponse(error, requestId);

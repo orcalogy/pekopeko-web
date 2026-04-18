@@ -1,4 +1,6 @@
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import type { MapProviderType, Restaurant } from '@/types/restaurant';
+import { ApiRouteError } from './http';
 import type {
   ApiProviderRef,
   ApiSource,
@@ -9,6 +11,8 @@ import type {
 
 const RESTAURANT_KEY_PREFIX = 'rest_v1_';
 const ALLOWED_PHOTO_HOST_SUFFIXES = ['amap.com', 'autonavi.com', 'hotpepper.jp', 'recruit.co.jp'];
+const RESTAURANT_KEY_IV_BYTES = 12;
+const RESTAURANT_KEY_TAG_BYTES = 16;
 
 export function getRestaurantProviderRefs(restaurant: Restaurant): ApiProviderRef[] {
   const refs =
@@ -48,7 +52,16 @@ export function inferRestaurantPhotoPayload(
 }
 
 export function buildRestaurantKey(payload: RestaurantKeyPayload): string {
-  return `${RESTAURANT_KEY_PREFIX}${Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')}`;
+  const key = getRestaurantKeyKeyMaterial(true);
+  const iv = randomBytes(RESTAURANT_KEY_IV_BYTES);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const ciphertext = Buffer.concat([
+    cipher.update(JSON.stringify(payload), 'utf8'),
+    cipher.final(),
+  ]);
+  const authTag = cipher.getAuthTag();
+
+  return `${RESTAURANT_KEY_PREFIX}${Buffer.concat([iv, authTag, ciphertext]).toString('base64url')}`;
 }
 
 export function buildRestaurantSnapshot(restaurant: Restaurant): RestaurantKeySnapshot {
@@ -69,9 +82,29 @@ export function parseRestaurantKey(value: string): RestaurantKeyPayload | null {
   }
 
   try {
+    const key = getRestaurantKeyKeyMaterial(false);
+    if (!key) {
+      return null;
+    }
+
     const encoded = value.slice(RESTAURANT_KEY_PREFIX.length);
+    const sealed = Buffer.from(encoded, 'base64url');
+
+    if (sealed.length <= RESTAURANT_KEY_IV_BYTES + RESTAURANT_KEY_TAG_BYTES) {
+      return null;
+    }
+
+    const iv = sealed.subarray(0, RESTAURANT_KEY_IV_BYTES);
+    const authTag = sealed.subarray(
+      RESTAURANT_KEY_IV_BYTES,
+      RESTAURANT_KEY_IV_BYTES + RESTAURANT_KEY_TAG_BYTES,
+    );
+    const ciphertext = sealed.subarray(RESTAURANT_KEY_IV_BYTES + RESTAURANT_KEY_TAG_BYTES);
+    const decipher = createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(authTag);
+
     const parsed = JSON.parse(
-      Buffer.from(encoded, 'base64url').toString('utf8'),
+      Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8'),
     ) as Partial<RestaurantKeyPayload>;
 
     if (
@@ -164,4 +197,33 @@ function dedupeProviderRefs(providerRefs: ApiProviderRef[]): ApiProviderRef[] {
 function getPrimaryProvider(source: Restaurant['source']): MapProviderType {
   if (source === 'hotpepper' || source === 'amap') return source;
   return 'google';
+}
+
+function getRestaurantKeyKeyMaterial(required: true): Buffer;
+function getRestaurantKeyKeyMaterial(required: false): Buffer | null;
+function getRestaurantKeyKeyMaterial(required: boolean): Buffer | null {
+  const explicitSecret = process.env.RESTAURANT_KEY_SECRET?.trim();
+  const fallbackSecret = [
+    process.env.GOOGLE_MAPS_SERVER_KEY,
+    process.env.HOTPEPPER_API_KEY,
+    process.env.AMAP_SERVER_KEY,
+  ]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value))
+    .join('\0');
+
+  const secret = explicitSecret || fallbackSecret;
+  if (!secret) {
+    if (!required) {
+      return null;
+    }
+
+    throw new ApiRouteError({
+      status: 500,
+      code: 'internal',
+      message: 'Restaurant key secret is not configured',
+    });
+  }
+
+  return createHash('sha256').update(`restaurant-key:${secret}`).digest();
 }

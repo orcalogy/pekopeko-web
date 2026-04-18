@@ -20,6 +20,7 @@ interface ResponseOptions {
   requestId: string;
   cacheControl: string;
   status?: number;
+  vary?: string[];
 }
 
 export class ApiRouteError extends Error {
@@ -54,8 +55,7 @@ export async function readJsonBody<T>(request: Request): Promise<T> {
 
 export function jsonResponse(body: unknown, options: ResponseOptions): NextResponse {
   const response = NextResponse.json(body, { status: options.status ?? 200 });
-  response.headers.set('X-Request-Id', options.requestId);
-  response.headers.set('Cache-Control', options.cacheControl);
+  applyResponseHeaders(response, options);
   return response;
 }
 
@@ -65,8 +65,7 @@ export function imageResponse(
 ): NextResponse {
   const response = new NextResponse(body, { status: options.status ?? 200 });
   response.headers.set('Content-Type', options.contentType);
-  response.headers.set('X-Request-Id', options.requestId);
-  response.headers.set('Cache-Control', options.cacheControl);
+  applyResponseHeaders(response, options);
   return response;
 }
 
@@ -123,4 +122,13 @@ export function legacyErrorResponse(error: unknown, requestId: string): NextResp
       cacheControl: 'no-store',
     },
   );
+}
+
+function applyResponseHeaders(response: NextResponse, options: ResponseOptions) {
+  response.headers.set('X-Request-Id', options.requestId);
+  response.headers.set('Cache-Control', options.cacheControl);
+
+  if (options.vary && options.vary.length > 0) {
+    response.headers.set('Vary', [...new Set(options.vary)].join(', '));
+  }
 }

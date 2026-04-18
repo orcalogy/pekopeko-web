@@ -223,7 +223,8 @@ Field notes:
 
 - `restaurant_key` is an opaque backend-owned key for future details/media routes.
 - phase 1 implementation note:
-  - the key currently carries provider refs plus a normalized fallback snapshot so the details endpoint can still resolve when a provider refresh is temporarily unavailable
+  - the key is encrypted and authenticated by the backend
+  - it currently carries provider refs plus a normalized fallback snapshot so the details endpoint can still resolve when a provider refresh is temporarily unavailable
 - `id` remains the compatibility field expected by the current frontend. For merged results it should be the Google id when present, otherwise the primary provider id.
 - `distance` is meters from the user-supplied search origin.
 - `priceLevel` uses the existing normalized 0-4 scale where available.
@@ -704,6 +705,7 @@ Recommended server env vars in the original project:
 GOOGLE_MAPS_SERVER_KEY=
 HOTPEPPER_API_KEY=
 AMAP_SERVER_KEY=
+RESTAURANT_KEY_SECRET=
 RESTAURANT_SEARCH_CACHE_TTL_SECONDS=60
 REVERSE_GEOCODE_CACHE_TTL_SECONDS=3600
 PHOTO_CACHE_TTL_SECONDS=86400
