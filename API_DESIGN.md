@@ -5,6 +5,9 @@
 - Audience: the agent implementing the backend in `~/code_repo/pekopeko`
 - Scope: restaurant search, region detection, media proxying, and backend capability discovery
 - Goal: provide one stable API for the Next.js web app and the Flutter mobile app while keeping provider keys server-side
+- Current identity implementation:
+  - `restaurant_key` is a stable server-managed database id resolved through a Prisma/PostgreSQL registry
+  - it is not an encrypted token and it does not embed provider refs or fallback snapshots in the key itself
 - Phase 1 implementation target in this repo:
   - `GET /api/v1/health`
   - `GET /api/v1/capabilities`
@@ -182,7 +185,7 @@ The normalized `Restaurant` payload must stay compatible with the existing `src/
 
 ```json
 {
-  "restaurant_key": "rest_v1_g_ChIJ4zGFAZpYwokRGUGph3Mf37k",
+  "restaurant_key": "rid_abcd1234",
   "id": "ChIJ4zGFAZpYwokRGUGph3Mf37k",
   "name": "Example Ramen",
   "address": "1-2-3 Shibuya, Tokyo",
@@ -194,7 +197,7 @@ The normalized `Restaurant` payload must stay compatible with the existing `src/
   "isOpenNow": true,
   "openingHours": ["Mon-Sun 11:30-23:00"],
   "cuisineType": "Ramen",
-  "photoUrl": "/api/v1/restaurants/rest_v1_g_ChIJ4zGFAZpYwokRGUGph3Mf37k/photo?max_width=800",
+  "photoUrl": "/api/v1/restaurants/rid_abcd1234/photo?max_width=800",
   "phone": "+81-3-1234-5678",
   "placeUrl": "https://www.google.com/maps/dir/?api=1&destination=Example%20Ramen&destination_place_id=ChIJ4zGFAZpYwokRGUGph3Mf37k",
   "detailUrl": "https://www.hotpepper.jp/strJ001234567/",
@@ -222,9 +225,9 @@ The normalized `Restaurant` payload must stay compatible with the existing `src/
 Field notes:
 
 - `restaurant_key` is an opaque backend-owned key for future details/media routes.
-- phase 1 implementation note:
-  - the key is encrypted and authenticated by the backend
-  - it currently carries provider refs plus a normalized fallback snapshot so the details endpoint can still resolve when a provider refresh is temporarily unavailable
+- current implementation note:
+  - the key is generated once when a restaurant registry row is created
+  - provider refs, last snapshot, and photo metadata live in the database, not inside the key
 - `id` remains the compatibility field expected by the current frontend. For merged results it should be the Google id when present, otherwise the primary provider id.
 - `distance` is meters from the user-supplied search origin.
 - `priceLevel` uses the existing normalized 0-4 scale where available.
@@ -437,7 +440,7 @@ Search execution rules:
    - `party_size`
    - `required_features`
 6. Sort and paginate.
-7. Return stable `restaurant_key` values for each result.
+7. Resolve each result through the restaurant registry and return a stable `restaurant_key`.
 
 Response:
 
@@ -533,12 +536,13 @@ Response:
 
 Behavior:
 
-- if the key represents a merged result, refetch or rehydrate from the base provider and merge enrichment fields again
+- resolve the restaurant from the registry by `restaurant_key`
+- if the key represents a merged result, refetch or rehydrate from the aliased providers and merge enrichment fields again
 - if the key cannot be resolved, return `404 not_found`
-- phase 1 implementation note:
-  - the backend now attempts provider-specific detail refresh by `provider_refs`
-  - if refresh fails but the `restaurant_key` carries an embedded normalized snapshot, return that snapshot instead of failing
-  - refreshed responses may return a newly re-encoded `restaurant_key` that preserves the latest normalized snapshot and photo metadata
+- current implementation note:
+  - the backend attempts provider-specific detail refresh by `provider_refs` stored in the registry
+  - if refresh fails but the registry has a stored normalized snapshot, return that snapshot instead of failing
+  - the `restaurant_key` itself remains stable across refreshes
 
 Cache:
 
@@ -557,7 +561,7 @@ Query parameters:
 
 Behavior:
 
-- resolve the primary provider photo reference from `restaurantKey`
+- resolve the current photo metadata from registry state by `restaurantKey`
 - for Google, fetch `v1/{photoRef}/media` with server key and stream the bytes
 - for HotPepper or Amap, either proxy the upstream image or redirect to a cached backend URL
 - return an image response, not JSON, on success
@@ -702,10 +706,10 @@ Caching must never leak provider keys to clients.
 Recommended server env vars in the original project:
 
 ```bash
+DATABASE_URL=
 GOOGLE_MAPS_SERVER_KEY=
 HOTPEPPER_API_KEY=
 AMAP_SERVER_KEY=
-RESTAURANT_KEY_SECRET=
 RESTAURANT_SEARCH_CACHE_TTL_SECONDS=60
 REVERSE_GEOCODE_CACHE_TTL_SECONDS=3600
 PHOTO_CACHE_TTL_SECONDS=86400
@@ -726,7 +730,7 @@ PHOTO_CACHE_TTL_SECONDS=86400
 11. Pending phase 2: add tests for:
     - provider resolution
     - Japan merge correctness
-    - canonical details refresh and snapshot fallback behavior
+    - canonical details refresh and registry snapshot fallback behavior
     - `open_now` filtering semantics
     - normalized field mapping
     - partial-results behavior when one provider fails
@@ -742,7 +746,7 @@ PHOTO_CACHE_TTL_SECONDS=86400
   - Google-backed result
   - HotPepper-backed result
   - hybrid JP result
-  - snapshot fallback when upstream detail refresh fails
+  - registry snapshot fallback when upstream detail refresh fails
 - `open_now=true` with mixed `true`, `false`, and `undefined`
 - rating, budget, capacity, and feature filters
 - photo endpoint with Google-backed results

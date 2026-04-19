@@ -32,6 +32,7 @@ pnpm install
 2. Create `.env.local` with the server-side keys you need:
 
 ```bash
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/pekopeko?schema=public
 GOOGLE_MAPS_SERVER_KEY=
 HOTPEPPER_API_KEY=
 AMAP_SERVER_KEY=
@@ -40,7 +41,14 @@ NEXT_PUBLIC_ENABLE_LLM=true
 
 `NEXT_PUBLIC_ENABLE_LLM` is optional. If omitted or set to `true`, the local LLM feature is available in Settings. Set it to `false` to hard-disable all LLM UI and runtime behavior.
 
-3. Start the dev server:
+3. Generate the Prisma client and apply the initial migration to a fresh local database:
+
+```bash
+pnpm prisma:generate
+pnpm prisma:migrate:dev
+```
+
+4. Start the dev server:
 
 ```bash
 pnpm dev
@@ -93,10 +101,12 @@ src/
     layout/               # App shell, providers, bottom nav
   data/                   # Static food/category metadata
   lib/                    # Filtering, time/season logic, LLM runtime, map adapters
+  db/                     # Prisma client bootstrap
   stores/                 # Zustand stores, including LLM runtime status
   workers/                # WebLLM dedicated worker
   types/                  # Shared types
   i18n/                   # next-intl config and message files
+prisma/                   # Prisma schema and SQL migrations
 ```
 
 ## Engineering Notes

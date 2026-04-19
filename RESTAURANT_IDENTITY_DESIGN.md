@@ -6,12 +6,12 @@ Status: accepted
 
 The app needs a stable restaurant identity that works across arbitrary restaurant data sources, survives partial-provider outages, and can be shared by the web and Flutter clients.
 
-The current `restaurantKey` is not suitable for that role. It is an opaque sealed payload with a random IV, so it is intentionally tamper-resistant but not deterministic.
+The old `restaurantKey` format was not suitable for that role. It was an opaque sealed payload with a random IV, so it was intentionally tamper-resistant but not deterministic.
 
-This design introduces a server-side restaurant registry:
+This design introduces a server-side restaurant registry backed by Prisma/PostgreSQL:
 
 - an internal database primary key
-- a stable public restaurant id for clients
+- a stable public `restaurantKey` for clients
 - per-provider alias rows
 - lifecycle handling for closures, rebrands, and tenant changes
 
@@ -24,7 +24,7 @@ This does not require storing user preference data on the server. It only stores
 - Support merged restaurants from any number of providers.
 - Preserve history when a restaurant closes.
 - Avoid incorrectly reusing identity when a new restaurant replaces an old one at the same location.
-- Let the API use a stable `restaurant_id` instead of `restaurantKey` for long-lived client state.
+- Let the API use a stable DB-backed `restaurantKey` for long-lived client state.
 
 ## Non-Goals
 
@@ -40,10 +40,10 @@ The canonical restaurant identity is a server-managed establishment record, not 
 The model is:
 
 - internal database PK: `id`
-- stable public id: `public_id`
+- stable public id: `restaurant_key`
 - provider aliases: `provider_key + provider_id`
 
-Clients use `public_id` as the canonical restaurant identity.
+Clients use `restaurantKey` as the canonical restaurant identity.
 
 ## Identity Principles
 
@@ -65,15 +65,10 @@ Cross-provider equality is inferred from evidence. Once accepted, it becomes an 
 
 The API should expose:
 
-- `restaurant_id`: stable public id, for example `rid_01J...`
+- `restaurant_key`: stable public id, for example `rid_...`
 - `provider_refs`: provider alias list
 
-The API should stop treating `restaurantKey` as the client's canonical identity.
-
-Recommended direction:
-
-- keep `restaurantKey` only as a short-lived compatibility token if needed during migration
-- move detail and photo routes to `restaurant_id`
+The API should treat `restaurantKey` as the canonical client identity. It is no longer an encoded snapshot token.
 
 ## Data Model
 
@@ -107,7 +102,7 @@ Suggested columns:
 ```sql
 create table restaurants (
   id bigint generated always as identity primary key,
-  public_id text not null unique,
+  restaurant_key text not null unique,
   status text not null check (status in ('active', 'closed', 'superseded')),
   canonical_name text not null,
   canonical_address text,
@@ -127,7 +122,7 @@ create table restaurants (
 
 Notes:
 
-- `public_id` is the stable id sent to clients.
+- `restaurant_key` is the stable id sent to clients.
 - `status` models lifecycle.
 - `canonical_*` fields are normalized best-known values for search/detail output.
 - `provider_coverage_keys` records which providers currently support this restaurant.
@@ -307,7 +302,7 @@ Use an opaque stable public id for clients.
 Recommended:
 
 - internal PK: numeric identity column
-- public id: `rid_<ulid>` or another opaque stable text id
+- public id: `rid_<random>` or another opaque stable text id generated once on insert
 
 Do not expose the raw integer PK as the public API identity.
 
@@ -319,7 +314,7 @@ Each restaurant result should include:
 
 ```json
 {
-  "restaurant_id": "rid_01J...",
+  "restaurant_key": "rid_abcd1234",
   "name": "...",
   "provider_refs": [
     { "provider_key": "provider_a", "provider_id": "..." },
@@ -332,13 +327,13 @@ Each restaurant result should include:
 
 Preferred final shape:
 
-- `GET /api/v1/restaurants/:restaurantId`
+- `GET /api/v1/restaurants/:restaurantKey`
 
 ### Photo Route
 
 Preferred final shape:
 
-- `GET /api/v1/restaurants/:restaurantId/photo`
+- `GET /api/v1/restaurants/:restaurantKey/photo`
 
 The server resolves the current best photo source from registry state and provider aliases.
 
@@ -346,55 +341,35 @@ The server resolves the current best photo source from registry state and provid
 
 Web and Flutter should store:
 
-- `restaurant_id` as the canonical recommendation identity
+- `restaurantKey` as the canonical recommendation identity
 - provider ids only as optional debugging or migration metadata
 
 They should not use:
 
 - provider-local `id`
-- encrypted `restaurantKey`
 
-## Migration Plan
+## Implementation Status
 
-### Phase 1: Add Registry
+Implemented in this repo:
 
-- create `restaurants`
-- create `restaurant_aliases`
-- backfill from current search results and detail fetches
+- Prisma/PostgreSQL-backed `restaurants` and `restaurant_aliases`
+- stable generated `restaurantKey` values stored in the database
+- open-ended provider alias strings in the database schema
+- search results resolved through the registry before serialization
+- detail/photo routes resolved through registry state instead of decoding state from the key
 
-### Phase 2: Resolve Search Results Through Registry
+Current deployment assumption:
 
-During search normalization:
-
-1. build provider alias observations
-2. resolve or create restaurant registry row
-3. emit `restaurant_id` with every result
-
-### Phase 3: Dual-Read API
-
-Temporarily expose both:
-
-- `restaurant_id`
-- existing `restaurantKey`
-
-Clients begin switching local state to `restaurant_id`.
-
-### Phase 4: Move Detail And Photo To `restaurant_id`
-
-Stop using stateless encrypted tokens as the canonical lookup mechanism.
-
-### Phase 5: Deprecate `restaurantKey`
-
-Keep only if needed for temporary compatibility. It should no longer be treated as stable identity anywhere in product logic.
+- there is no legacy database to migrate
+- this is a fresh schema bootstrap
+- clients may break against the old encoded-token format
 
 ## Recommendation Impact
 
-This design supersedes the earlier idea of using `restaurantKey` as the canonical recommendation identity.
+This design keeps `restaurantKey` as the canonical recommendation identity, but changes its meaning completely:
 
-Once `restaurant_id` exists:
-
-- web recommendation stores should migrate to `restaurant_id`
-- Flutter should use the same `restaurant_id`
+- it is now a stable registry-backed public id
+- it is no longer an encoded provider payload
 - explicit feedback and visit history remain client-local
 
 This preserves the no-user-data-on-server rule while fixing identity stability.
@@ -411,10 +386,10 @@ This preserves the no-user-data-on-server rule while fixing identity stability.
 Use a server-side restaurant registry with:
 
 - internal PK as the true primary key
-- opaque stable `restaurant_id` as the public identity
+- opaque stable `restaurantKey` as the public identity
 - provider ids as alias subkeys
 - open-ended provider registration instead of a hard-coded provider enum
 - explicit lifecycle handling for closure, supersession, and tenant replacement
 
 Do not use any single provider's id as the canonical app identity.
-Do not use `restaurantKey` as the canonical app identity.
+Do not use encoded provider payloads as the canonical app identity.
