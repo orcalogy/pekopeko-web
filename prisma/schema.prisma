@@ -1,0 +1,77 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum RestaurantRecordStatus {
+  ACTIVE
+  CLOSED
+  SUPERSEDED
+}
+
+enum RestaurantAliasStatus {
+  ACTIVE
+  RETIRED
+  SUSPECT
+}
+
+model RestaurantRecord {
+  id                        BigInt                   @id @default(autoincrement())
+  restaurantKey             String                   @unique @db.VarChar(32)
+  status                    RestaurantRecordStatus   @default(ACTIVE)
+  canonicalName             String
+  normalizedCanonicalName   String?
+  canonicalAddress          String?
+  normalizedCanonicalAddress String?
+  lat                       Float?
+  lng                       Float?
+  phone                     String?
+  normalizedPhone           String?
+  websiteUrl                String?
+  normalizedWebsiteHost     String?
+  providerCoverageKeys      String[]                 @default([])
+  lastObservedSource        String?
+  lastSnapshotJson          Json?
+  lastPhotoPayloadJson      Json?
+  firstSeenAt               DateTime
+  lastSeenAt                DateTime
+  closedAt                  DateTime?
+  supersededById            BigInt?
+  supersededBy              RestaurantRecord?        @relation("RestaurantSupersession", fields: [supersededById], references: [id])
+  replacements              RestaurantRecord[]       @relation("RestaurantSupersession")
+  aliases                   RestaurantAlias[]
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @updatedAt
+
+  @@index([normalizedCanonicalName])
+  @@index([normalizedPhone])
+  @@index([normalizedWebsiteHost])
+  @@map("restaurants")
+}
+
+model RestaurantAlias {
+  id           BigInt                @id @default(autoincrement())
+  restaurantId BigInt
+  restaurant   RestaurantRecord      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  provider     String
+  providerId   String
+  status       RestaurantAliasStatus @default(ACTIVE)
+  confidence   Float                 @default(1)
+  firstSeenAt  DateTime
+  lastSeenAt   DateTime
+  rawName      String?
+  rawAddress   String?
+  rawPhone     String?
+  rawWebsiteUrl String?
+  rawLat       Float?
+  rawLng       Float?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  @@unique([provider, providerId])
+  @@index([restaurantId])
+  @@map("restaurant_aliases")
+}

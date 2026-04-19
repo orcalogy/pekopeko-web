@@ -9,7 +9,10 @@
     "lint": "biome check --write ./src",
     "format": "biome format --write ./src",
     "check": "biome check ./src",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy"
   },
   "dependencies": {
     "@mantine/carousel": "^9.0.1",
@@ -18,11 +21,16 @@
     "@mantine/hooks": "^9.0.1",
     "@mantine/notifications": "^9.0.1",
     "@mlc-ai/web-llm": "^0.2.82",
+    "@prisma/adapter-pg": "^7.7.0",
+    "@prisma/client": "^7.7.0",
+    "dotenv": "^17.4.2",
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^12.38.0",
     "leaflet": "^1.9.4",
     "next": "16.2.3",
     "next-intl": "^4.9.1",
+    "pg": "^8.20.0",
+    "prisma": "^7.7.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-leaflet": "^5.0.0",
