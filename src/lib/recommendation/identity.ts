@@ -7,6 +7,11 @@ export function getRestaurantIdentityKey(restaurant: {
   source?: Restaurant['source'] | null;
   providerRefs?: RestaurantProviderRef[] | null;
 }): string {
+  const canonicalKey = restaurant.restaurantKey?.trim();
+  if (canonicalKey) {
+    return canonicalKey;
+  }
+
   const preferredProviderRef = getPreferredProviderRef(restaurant.providerRefs);
   if (preferredProviderRef) {
     return preferredProviderRef.providerId;
@@ -17,7 +22,7 @@ export function getRestaurantIdentityKey(restaurant: {
     return providerId;
   }
 
-  return restaurant.restaurantKey?.trim() ?? '';
+  return '';
 }
 
 export function buildRestaurantPreferenceSnapshot(

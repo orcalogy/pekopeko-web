@@ -5,7 +5,7 @@ import {
   getPhotoCacheControl,
   normalizePhotoWidth,
 } from '@/lib/api/photo';
-import { parseRestaurantKey } from '@/lib/api/restaurant-key';
+import { getStoredRestaurantRecord } from '@/lib/api/restaurant-registry';
 
 export async function GET(
   request: Request,
@@ -15,9 +15,9 @@ export async function GET(
 
   try {
     const { restaurantKey } = await params;
-    const payload = parseRestaurantKey(restaurantKey);
+    const record = await getStoredRestaurantRecord(restaurantKey);
 
-    if (!payload?.photo) {
+    if (!record?.photo) {
       throw new ApiRouteError({
         status: 404,
         code: 'not_found',
@@ -27,10 +27,10 @@ export async function GET(
 
     const url = new URL(request.url);
     const maxWidth = normalizePhotoWidth(url.searchParams.get('max_width'));
-    const upstreamResponse = payload.photo.ref
-      ? await fetchGooglePhotoMedia(payload.photo.ref, maxWidth)
-      : payload.photo.url
-        ? await fetchExternalPhotoMedia(payload.photo.url)
+    const upstreamResponse = record.photo.ref
+      ? await fetchGooglePhotoMedia(record.photo.ref, maxWidth)
+      : record.photo.url
+        ? await fetchExternalPhotoMedia(record.photo.url)
         : null;
 
     if (!upstreamResponse) {

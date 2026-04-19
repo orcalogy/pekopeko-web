@@ -24,16 +24,10 @@ export interface RestaurantPhotoPayload {
   url?: string;
 }
 
-export type RestaurantKeySnapshot = Omit<Restaurant, 'photoRef' | 'photoUrl' | 'providerRefs'>;
-
-export interface RestaurantKeyPayload {
-  v: 1;
-  source: ApiSource;
-  primaryId: string;
-  providerRefs: ApiProviderRef[];
-  photo?: RestaurantPhotoPayload;
-  snapshot?: RestaurantKeySnapshot;
-}
+export type RestaurantKeySnapshot = Omit<
+  Restaurant,
+  'restaurantKey' | 'photoRef' | 'photoUrl' | 'providerRefs'
+>;
 
 export interface ApiRestaurantRecord extends Restaurant {
   restaurantKey: string;

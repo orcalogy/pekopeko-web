@@ -16,7 +16,7 @@ export interface RestaurantProviderRef {
 
 export interface Restaurant {
   id: string;
-  /** Canonical opaque identifier returned by the normalized restaurant API */
+  /** Stable server-managed restaurant identity */
   restaurantKey?: string;
   name: string;
   address: string;

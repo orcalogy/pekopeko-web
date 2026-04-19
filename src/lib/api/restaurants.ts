@@ -22,20 +22,21 @@ import {
 import { ApiRouteError } from './http';
 import {
   buildCanonicalRestaurantPhotoUrl,
-  buildRestaurantKey,
-  buildRestaurantSnapshot,
-  getRestaurantProviderRefs,
   inferRestaurantPhotoPayload,
-  parseRestaurantKey,
   restoreRestaurantFromSnapshot,
 } from './restaurant-key';
+import {
+  getStoredRestaurantRecord,
+  resolveRestaurantIdentity,
+  type StoredRestaurantRecord,
+} from './restaurant-registry';
 import type {
   ApiProviderRef,
   ApiRestaurantRecord,
   ApiSource,
   AppliedRestaurantFilters,
   ProviderSearchStats,
-  RestaurantKeyPayload,
+  RestaurantPhotoPayload,
   RestaurantSearchRequest,
   RestaurantSearchResult,
   RestaurantSortBy,
@@ -102,10 +103,10 @@ export async function searchRestaurants(params: {
   });
   normalized = sortRestaurants(normalized, sortBy, sortDirection);
 
-  const results = normalized.map(enrichRestaurantForApi);
-  const pagedResults = results.slice(pageOffset, pageOffset + pageSize);
+  const pagedRestaurants = normalized.slice(pageOffset, pageOffset + pageSize);
+  const pagedResults = await Promise.all(pagedRestaurants.map(enrichRestaurantForApi));
   const nextPageToken =
-    pageOffset + pageSize < results.length ? encodePageToken(pageOffset + pageSize) : null;
+    pageOffset + pageSize < normalized.length ? encodePageToken(pageOffset + pageSize) : null;
 
   const appliedFilters: AppliedRestaurantFilters = {
     openNow,
@@ -160,8 +161,8 @@ export async function getRestaurantDetails(params: {
   locale: string | null | undefined;
   acceptLanguage: string | null;
 }): Promise<ApiRestaurantRecord> {
-  const payload = parseRestaurantKey(params.restaurantKey);
-  if (!payload) {
+  const storedRecord = await getStoredRestaurantRecord(params.restaurantKey);
+  if (!storedRecord) {
     throw new ApiRouteError({
       status: 404,
       code: 'not_found',
@@ -170,12 +171,18 @@ export async function getRestaurantDetails(params: {
   }
 
   const locale = resolveRequestLocale(params.locale, params.acceptLanguage);
-  const snapshot = payload.snapshot ? restoreRestaurantFromSnapshot(payload.snapshot) : null;
+  const snapshot = storedRecord.snapshot
+    ? restoreRestaurantFromSnapshot(storedRecord.snapshot)
+    : null;
   let fresh: Restaurant | null = null;
   let refreshError: ApiRouteError | null = null;
 
   try {
-    fresh = await fetchRestaurantDetailsByRefs(payload, locale);
+    fresh = await fetchRestaurantDetailsByRefs(
+      storedRecord.providerRefs,
+      locale,
+      storedRecord.source,
+    );
   } catch (error) {
     refreshError = normalizeDetailRefreshError(error);
   }
@@ -192,12 +199,23 @@ export async function getRestaurantDetails(params: {
   }
 
   const restaurant = coalesceRestaurantDetails({
-    payload,
+    storedRecord,
     snapshot,
     fresh,
   });
 
-  return enrichRestaurantForApi(restaurant);
+  const providerRefs = dedupeProviderRefs([
+    ...(restaurant.providerRefs ?? []),
+    ...storedRecord.providerRefs,
+  ]);
+  const photo = inferRestaurantPhotoPayload(restaurant, providerRefs) ?? storedRecord.photo;
+
+  return buildApiRestaurantRecord({
+    restaurant,
+    restaurantKey: storedRecord.restaurantKey,
+    providerRefs,
+    photo,
+  });
 }
 
 async function fetchProviderResults(params: {
@@ -412,24 +430,28 @@ function sortRestaurants(
   });
 }
 
-export function enrichRestaurantForApi(restaurant: Restaurant): ApiRestaurantRecord {
-  const providerRefs = getRestaurantProviderRefs(restaurant);
-  const source = restaurant.source ?? providerRefs[0]?.provider ?? 'google';
-  const photo = inferRestaurantPhotoPayload(restaurant, providerRefs);
-  const restaurantKey = buildRestaurantKey({
-    v: 1,
-    source,
-    primaryId: restaurant.id,
-    providerRefs,
-    ...(photo ? { photo } : {}),
-    snapshot: buildRestaurantSnapshot(restaurant),
-  });
+export async function enrichRestaurantForApi(restaurant: Restaurant): Promise<ApiRestaurantRecord> {
+  const resolved = await resolveRestaurantIdentity(restaurant);
 
+  return buildApiRestaurantRecord({
+    restaurant,
+    restaurantKey: resolved.restaurantKey,
+    providerRefs: resolved.providerRefs,
+    photo: resolved.photo,
+  });
+}
+
+function buildApiRestaurantRecord(params: {
+  restaurant: Restaurant;
+  restaurantKey: string;
+  providerRefs: ApiProviderRef[];
+  photo?: RestaurantPhotoPayload;
+}): ApiRestaurantRecord {
   return {
-    ...restaurant,
-    providerRefs,
-    restaurantKey,
-    photoUrl: photo ? buildCanonicalRestaurantPhotoUrl(restaurantKey) : undefined,
+    ...params.restaurant,
+    providerRefs: params.providerRefs,
+    restaurantKey: params.restaurantKey,
+    photoUrl: params.photo ? buildCanonicalRestaurantPhotoUrl(params.restaurantKey) : undefined,
   };
 }
 
@@ -448,11 +470,12 @@ function buildWarnings(
 }
 
 async function fetchRestaurantDetailsByRefs(
-  payload: RestaurantKeyPayload,
+  providerRefs: ApiProviderRef[],
   locale: AppLocale,
+  source: ApiSource,
 ): Promise<Restaurant | null> {
   const detailResults = await Promise.allSettled(
-    payload.providerRefs.map(async (ref) => ({
+    providerRefs.map(async (ref) => ({
       provider: ref.provider,
       restaurant: await fetchSingleRestaurantDetail(ref, locale),
     })),
@@ -482,8 +505,7 @@ async function fetchRestaurantDetailsByRefs(
   }
 
   return (
-    successes.find((entry) => entry.provider === getPrimaryProviderForSource(payload.source))
-      ?.restaurant ??
+    successes.find((entry) => entry.provider === getPrimaryProviderForSource(source))?.restaurant ??
     successes[0]?.restaurant ??
     null
   );
@@ -538,11 +560,11 @@ async function fetchSingleRestaurantDetail(
 }
 
 function coalesceRestaurantDetails(params: {
-  payload: RestaurantKeyPayload;
+  storedRecord: StoredRestaurantRecord;
   snapshot: Restaurant | null;
   fresh: Restaurant | null;
 }): Restaurant {
-  const { payload, snapshot, fresh } = params;
+  const { storedRecord, snapshot, fresh } = params;
   const base = fresh ?? snapshot;
 
   if (!base) {
@@ -556,14 +578,19 @@ function coalesceRestaurantDetails(params: {
   const merged: Restaurant = {
     ...(snapshot ?? {}),
     ...base,
-    id: base.id || snapshot?.id || payload.primaryId,
-    source: payload.source === 'hybrid' ? 'hybrid' : (base.source ?? snapshot?.source),
+    id: base.id || snapshot?.id || storedRecord.providerRefs[0]?.providerId || '',
+    restaurantKey: storedRecord.restaurantKey,
+    source:
+      storedRecord.source === 'hybrid'
+        ? 'hybrid'
+        : (base.source ?? snapshot?.source ?? storedRecord.source),
     providerRefs: dedupeProviderRefs([
       ...(snapshot?.providerRefs ?? []),
       ...(base.providerRefs ?? []),
-      ...payload.providerRefs,
+      ...storedRecord.providerRefs,
     ]),
-    photoRef: base.photoRef ?? (payload.photo?.ref ? payload.photo.ref : undefined),
+    photoRef: base.photoRef ?? (storedRecord.photo?.ref ? storedRecord.photo.ref : undefined),
+    photoUrl: base.photoUrl ?? (storedRecord.photo?.url ? storedRecord.photo.url : undefined),
   };
 
   return merged;
