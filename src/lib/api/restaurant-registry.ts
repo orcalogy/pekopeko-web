@@ -8,14 +8,17 @@ import {
   getRestaurantProviderRefs,
   inferRestaurantPhotoPayload,
 } from './restaurant-key';
+import {
+  normalizeWebsiteIdentity,
+  selectExactWebsiteMatch,
+  selectRestaurantRegistryCandidate,
+} from './restaurant-registry-match.ts';
 import type {
   ApiProviderRef,
   ApiSource,
   RestaurantKeySnapshot,
   RestaurantPhotoPayload,
 } from './types';
-
-const NAME_DISTANCE_MATCH_M = 80;
 
 const ACTIVE_ALIAS_INCLUDE = {
   aliases: {
@@ -41,6 +44,7 @@ interface RestaurantObservation {
   normalizedPhone?: string;
   websiteUrl?: string;
   normalizedWebsiteHost?: string;
+  normalizedWebsiteIdentity?: string;
   snapshot: RestaurantKeySnapshot;
   photo?: RestaurantPhotoPayload;
 }
@@ -129,65 +133,72 @@ async function findCandidateRestaurant(
   tx: Prisma.TransactionClient,
   observation: RestaurantObservation,
 ): Promise<RestaurantRecordWithAliases | null> {
-  if (observation.normalizedPhone) {
-    const phoneMatch = await tx.restaurantRecord.findFirst({
-      where: {
-        status: RestaurantRecordStatus.ACTIVE,
-        normalizedPhone: observation.normalizedPhone,
-      },
-      include: ACTIVE_ALIAS_INCLUDE,
-      orderBy: { lastSeenAt: 'desc' },
-    });
+  const phoneMatch = observation.normalizedPhone
+    ? await tx.restaurantRecord.findFirst({
+        where: {
+          status: RestaurantRecordStatus.ACTIVE,
+          normalizedPhone: observation.normalizedPhone,
+        },
+        include: ACTIVE_ALIAS_INCLUDE,
+        orderBy: { lastSeenAt: 'desc' },
+      })
+    : null;
 
-    if (phoneMatch) {
-      return phoneMatch;
-    }
-  }
+  const websiteMatch =
+    phoneMatch || !observation.normalizedWebsiteHost || !observation.normalizedWebsiteIdentity
+      ? null
+      : selectExactWebsiteMatch({
+          normalizedWebsiteIdentity: observation.normalizedWebsiteIdentity,
+          candidates: (
+            await tx.restaurantRecord.findMany({
+              where: {
+                status: RestaurantRecordStatus.ACTIVE,
+                normalizedWebsiteHost: observation.normalizedWebsiteHost,
+              },
+              include: ACTIVE_ALIAS_INCLUDE,
+              take: 12,
+              orderBy: { lastSeenAt: 'desc' },
+            })
+          ).map((candidate) => ({
+            value: candidate,
+            websiteUrl: candidate.websiteUrl,
+          })),
+        });
 
-  if (observation.normalizedWebsiteHost) {
-    const websiteMatch = await tx.restaurantRecord.findFirst({
-      where: {
-        status: RestaurantRecordStatus.ACTIVE,
-        normalizedWebsiteHost: observation.normalizedWebsiteHost,
-      },
-      include: ACTIVE_ALIAS_INCLUDE,
-      orderBy: { lastSeenAt: 'desc' },
-    });
+  const candidates =
+    phoneMatch ||
+    websiteMatch ||
+    !observation.normalizedCanonicalName ||
+    observation.lat == null ||
+    observation.lng == null
+      ? []
+      : await tx.restaurantRecord.findMany({
+          where: {
+            status: RestaurantRecordStatus.ACTIVE,
+            normalizedCanonicalName: observation.normalizedCanonicalName,
+          },
+          include: ACTIVE_ALIAS_INCLUDE,
+          take: 12,
+          orderBy: { lastSeenAt: 'desc' },
+        });
 
-    if (websiteMatch) {
-      return websiteMatch;
-    }
-  }
-
-  if (!observation.normalizedCanonicalName || observation.lat == null || observation.lng == null) {
-    return null;
-  }
-
-  const observationLat = observation.lat;
-  const observationLng = observation.lng;
-
-  const candidates = await tx.restaurantRecord.findMany({
-    where: {
-      status: RestaurantRecordStatus.ACTIVE,
-      normalizedCanonicalName: observation.normalizedCanonicalName,
+  return selectRestaurantRegistryCandidate({
+    observation: {
+      canonicalName: observation.canonicalName,
+      canonicalAddress: observation.canonicalAddress,
+      lat: observation.lat,
+      lng: observation.lng,
     },
-    include: ACTIVE_ALIAS_INCLUDE,
-    take: 12,
-    orderBy: { lastSeenAt: 'desc' },
+    phoneMatch,
+    websiteMatch,
+    candidates: candidates.map((candidate) => ({
+      value: candidate,
+      canonicalName: candidate.canonicalName,
+      canonicalAddress: candidate.canonicalAddress,
+      lat: candidate.lat,
+      lng: candidate.lng,
+    })),
   });
-
-  const nearby = candidates
-    .map((candidate) => ({
-      candidate,
-      distance:
-        candidate.lat == null || candidate.lng == null
-          ? Number.POSITIVE_INFINITY
-          : haversineMeters(observationLat, observationLng, candidate.lat, candidate.lng),
-    }))
-    .filter((entry) => entry.distance <= NAME_DISTANCE_MATCH_M)
-    .sort((left, right) => left.distance - right.distance);
-
-  return nearby[0]?.candidate ?? null;
 }
 
 async function updateRestaurantRecord(
@@ -339,6 +350,7 @@ function buildObservation(
     normalizedPhone: phone ? normalizePhone(phone) : undefined,
     websiteUrl,
     normalizedWebsiteHost: websiteUrl ? normalizeWebsiteHost(websiteUrl) : undefined,
+    normalizedWebsiteIdentity: normalizeWebsiteIdentity(websiteUrl),
     snapshot: buildRestaurantSnapshot(restaurant),
     photo: inferRestaurantPhotoPayload(restaurant, providerRefs),
   };
@@ -394,17 +406,6 @@ function normalizeWebsiteHost(value: string): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const radius = 6_371_000;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-
-  return radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 function toNullableJsonValue(

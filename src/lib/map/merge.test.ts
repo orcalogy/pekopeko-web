@@ -77,10 +77,7 @@ test('does not merge unrelated restaurants that happen to be nearby', () => {
   const merged = mergeResults([google], [hotpepper]);
 
   assert.equal(merged.length, 2);
-  assert.deepEqual(
-    merged.map((restaurant) => restaurant.id).sort(),
-    ['google-1', 'hp-1'],
-  );
+  assert.deepEqual(merged.map((restaurant) => restaurant.id).sort(), ['google-1', 'hp-1']);
 });
 
 test('does not merge same-brand branches with different suffixes', () => {
@@ -104,6 +101,80 @@ test('does not merge same-brand branches with different suffixes', () => {
   const merged = mergeResults([google], [hotpepper]);
 
   assert.equal(merged.length, 2);
+});
+
+test('does not merge a branchless chain name with a nearby branch-specific result', () => {
+  const google = createRestaurant({
+    id: 'google-1',
+    name: 'スターバックスコーヒー',
+    address: '東京都渋谷区道玄坂1-12-1',
+    source: 'google',
+    providerRefs: [{ provider: 'google', providerId: 'google-1' }],
+  });
+  const hotpepper = createRestaurant({
+    id: 'hp-1',
+    name: 'スターバックスコーヒー渋谷マークシティ店',
+    address: '東京都渋谷区道玄坂1-13-1',
+    lat: 35.65803,
+    lng: 139.70102,
+    source: 'hotpepper',
+    providerRefs: [{ provider: 'hotpepper', providerId: 'hp-1' }],
+  });
+
+  const merged = mergeResults([google], [hotpepper]);
+
+  assert.equal(merged.length, 2);
+});
+
+test('does not merge exact-name matches when the primary address number sequence differs', () => {
+  const google = createRestaurant({
+    id: 'google-1',
+    name: '鳥貴族 渋谷店',
+    address: '東京都渋谷区道玄坂1-12-1 2F',
+    source: 'google',
+    providerRefs: [{ provider: 'google', providerId: 'google-1' }],
+  });
+  const hotpepper = createRestaurant({
+    id: 'hp-1',
+    name: '鳥貴族 渋谷店',
+    address: '東京都渋谷区道玄坂1-13-1 2F',
+    lat: 35.65803,
+    lng: 139.70102,
+    source: 'hotpepper',
+    providerRefs: [{ provider: 'hotpepper', providerId: 'hp-1' }],
+  });
+
+  const merged = mergeResults([google], [hotpepper]);
+
+  assert.equal(merged.length, 2);
+});
+
+test('merges when Google adds a Japanese postal code prefix to the same address', () => {
+  const google = createRestaurant({
+    id: 'google-1',
+    name: 'good spoon Handmade Cheese & Pizzeria ルミネ新宿店',
+    address: '日本、〒160-0023 東京都新宿区西新宿1-1-5 ルミネ新宿LUMINE1 7F',
+    lat: 35.6891923,
+    lng: 139.6990268,
+    source: 'google',
+    providerRefs: [{ provider: 'google', providerId: 'google-1' }],
+  });
+  const hotpepper = createRestaurant({
+    id: 'hp-1',
+    name: 'good spoon Handmade Cheese&Pizzeria ルミネ新宿店',
+    address: '東京都新宿区西新宿1-1-5ルミネ新宿LUMINE1 7F',
+    lat: 35.6891877229,
+    lng: 139.6991410468,
+    source: 'hotpepper',
+    providerRefs: [{ provider: 'hotpepper', providerId: 'hp-1' }],
+    couponUrl: 'https://example.com/good-spoon',
+  });
+
+  const merged = mergeResults([google], [hotpepper]);
+
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0]?.source, 'hybrid');
+  assert.equal(merged[0]?.couponUrl, 'https://example.com/good-spoon');
 });
 
 test('merges when HotPepper adds a descriptive prefix to the same venue name', () => {

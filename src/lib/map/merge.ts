@@ -1,10 +1,5 @@
 import type { Restaurant } from '@/types/restaurant';
-
-const EXACT_NAME_DISTANCE_M = 80;
-const CONTAINED_NAME_DISTANCE_M = 35;
-const FUZZY_NAME_DISTANCE_M = 20;
-const STRONG_FUZZY_NAME_SIMILARITY = 0.88;
-const CLOSE_FUZZY_NAME_SIMILARITY = 0.8;
+import { selectBestRestaurantMatch } from '../restaurant-matching.ts';
 
 /**
  * Merge restaurants from Google Places and HotPepper, combining complementary data.
@@ -71,172 +66,32 @@ export function mergeResults(google: Restaurant[], hotpepper: Restaurant[]): Res
 
 /**
  * Find the strongest HotPepper match for a Google result.
- * Skips already-matched HotPepper entries and requires a strong enough name match.
+ * Skips already-matched HotPepper entries and delegates acceptance to the shared matcher.
  */
 function findBestMatch(
   target: Restaurant,
   candidates: Restaurant[],
   excluded: Set<string>,
 ): Restaurant | undefined {
-  let best: Restaurant | undefined;
-  let bestScore = 0;
-  let bestDistance = Number.POSITIVE_INFINITY;
-
-  for (const c of candidates) {
-    if (excluded.has(c.id)) continue;
-
-    const d = haversine(target.lat, target.lng, c.lat, c.lng);
-
-    const score = scorePotentialMatch(target, c, d);
-    if (score <= 0) continue;
-
-    if (score > bestScore || (score === bestScore && d < bestDistance)) {
-      bestScore = score;
-      bestDistance = d;
-      best = c;
-    }
-  }
-
-  return best;
-}
-
-function scorePotentialMatch(google: Restaurant, hotpepper: Restaurant, distanceM: number): number {
-  if (hasAddressConflict(google.address, hotpepper.address)) {
-    return 0;
-  }
-
-  const googleName = normalizeNameForComparison(google.name);
-  const hotpepperName = normalizeNameForComparison(hotpepper.name);
-
-  if (!googleName || !hotpepperName) {
-    return 0;
-  }
-
-  if (googleName === hotpepperName) {
-    return distanceM <= EXACT_NAME_DISTANCE_M ? 1 - distanceM / 1000 : 0;
-  }
-
-  const shortestLength = Math.min(googleName.length, hotpepperName.length);
-  const oneContainsTheOther =
-    shortestLength >= 6 &&
-    (googleName.includes(hotpepperName) || hotpepperName.includes(googleName));
-
-  if (oneContainsTheOther) {
-    return distanceM <= CONTAINED_NAME_DISTANCE_M ? 0.92 - distanceM / 1000 : 0;
-  }
-
-  if (shortestLength < 5) {
-    return 0;
-  }
-
-  const nameSimilarity = sorensenDiceSimilarity(googleName, hotpepperName);
-
-  if (nameSimilarity >= STRONG_FUZZY_NAME_SIMILARITY && distanceM <= CONTAINED_NAME_DISTANCE_M) {
-    return 0.78 + nameSimilarity * 0.1 - distanceM / 1000;
-  }
-
-  if (nameSimilarity >= CLOSE_FUZZY_NAME_SIMILARITY && distanceM <= FUZZY_NAME_DISTANCE_M) {
-    return 0.65 + nameSimilarity * 0.1 - distanceM / 1000;
-  }
-
-  return 0;
-}
-
-function haversine(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371000;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function normalizeNameForComparison(value: string): string {
-  return value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
-}
-
-function normalizeAddressForComparison(value: string): string {
-  return value.normalize('NFKC').toLowerCase();
-}
-
-function hasAddressConflict(left: string, right: string): boolean {
-  const leftAddress = normalizeAddressForComparison(left);
-  const rightAddress = normalizeAddressForComparison(right);
-
-  if (!leftAddress || !rightAddress) {
-    return false;
-  }
-
-  const leftFloors = extractFloorMarkers(leftAddress);
-  const rightFloors = extractFloorMarkers(rightAddress);
-
-  if (leftFloors.length > 0 && rightFloors.length > 0 && !hasSharedToken(leftFloors, rightFloors)) {
-    return true;
-  }
-
-  const leftNumbers = extractAddressNumbers(leftAddress);
-  const rightNumbers = extractAddressNumbers(rightAddress);
-
-  return (
-    leftNumbers.length >= 2 &&
-    rightNumbers.length >= 2 &&
-    !hasSharedToken(leftNumbers, rightNumbers)
+  const bestMatch = selectBestRestaurantMatch(
+    {
+      name: target.name,
+      address: target.address,
+      lat: target.lat,
+      lng: target.lng,
+    },
+    candidates
+      .filter((candidate) => !excluded.has(candidate.id))
+      .map((candidate) => ({
+        value: candidate,
+        name: candidate.name,
+        address: candidate.address,
+        lat: candidate.lat,
+        lng: candidate.lng,
+      })),
   );
-}
 
-function extractFloorMarkers(address: string): string[] {
-  const matches = address.matchAll(/(\d{1,2})(?:\s*)(f|階)/gu);
-  return [...new Set(Array.from(matches, (match) => match[1]))];
-}
-
-function extractAddressNumbers(address: string): string[] {
-  return [...new Set(address.match(/\d+/g) ?? [])];
-}
-
-function hasSharedToken(left: string[], right: string[]): boolean {
-  const rightSet = new Set(right);
-  return left.some((token) => rightSet.has(token));
-}
-
-function sorensenDiceSimilarity(left: string, right: string): number {
-  if (left === right) {
-    return 1;
-  }
-
-  if (left.length < 2 || right.length < 2) {
-    return 0;
-  }
-
-  const leftBigrams = buildBigrams(left);
-  const rightBigrams = buildBigrams(right);
-  const rightCounts = new Map<string, number>();
-
-  for (const bigram of rightBigrams) {
-    rightCounts.set(bigram, (rightCounts.get(bigram) ?? 0) + 1);
-  }
-
-  let overlap = 0;
-
-  for (const bigram of leftBigrams) {
-    const count = rightCounts.get(bigram) ?? 0;
-    if (count > 0) {
-      overlap += 1;
-      rightCounts.set(bigram, count - 1);
-    }
-  }
-
-  return (2 * overlap) / (leftBigrams.length + rightBigrams.length);
-}
-
-function buildBigrams(value: string): string[] {
-  const bigrams: string[] = [];
-
-  for (let index = 0; index < value.length - 1; index += 1) {
-    bigrams.push(value.slice(index, index + 2));
-  }
-
-  return bigrams;
+  return bestMatch?.value;
 }
 
 function dedupeProviderRefs(providerRefs: NonNullable<Restaurant['providerRefs']>) {
