@@ -1,23 +1,15 @@
 import { createRequestId, errorResponse, jsonResponse, readJsonBody } from '@/lib/api/http';
 import { parseRestaurantSearchRequest } from '@/lib/api/request-parsers';
 import { searchRestaurants } from '@/lib/api/restaurants';
+import { createRestaurantsSearchPostHandler } from '@/lib/api/routes/v1/restaurants-search';
 import { serializeRestaurantSearchResponse } from '@/lib/api/serializers';
 
-export async function POST(request: Request) {
-  const requestId = createRequestId();
-
-  try {
-    const body = parseRestaurantSearchRequest(await readJsonBody(request));
-    const result = await searchRestaurants({
-      input: body,
-      acceptLanguage: request.headers.get('accept-language'),
-    });
-
-    return jsonResponse(serializeRestaurantSearchResponse(result, requestId), {
-      requestId,
-      cacheControl: 'no-store',
-    });
-  } catch (error) {
-    return errorResponse(error, requestId);
-  }
-}
+export const POST = createRestaurantsSearchPostHandler({
+  createRequestId,
+  readJsonBody,
+  parseRestaurantSearchRequest,
+  searchRestaurants,
+  serializeRestaurantSearchResponse,
+  jsonResponse,
+  errorResponse,
+});

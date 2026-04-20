@@ -1,12 +1,9 @@
-import { CAPABILITIES_CACHE_CONTROL } from '@/lib/api/capabilities';
 import { createRequestId, jsonResponse } from '@/lib/api/http';
+import { createCapabilitiesGetHandler } from '@/lib/api/routes/v1/capabilities';
 import { serializeCapabilitiesResponse } from '@/lib/api/serializers';
 
-export function GET() {
-  const requestId = createRequestId();
-
-  return jsonResponse(serializeCapabilitiesResponse(), {
-    requestId,
-    cacheControl: CAPABILITIES_CACHE_CONTROL,
-  });
-}
+export const GET = createCapabilitiesGetHandler({
+  createRequestId,
+  serializeCapabilitiesResponse,
+  jsonResponse,
+});
