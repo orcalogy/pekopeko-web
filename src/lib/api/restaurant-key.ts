@@ -60,7 +60,7 @@ export function restoreRestaurantFromSnapshot(snapshot: RestaurantKeySnapshot): 
 }
 
 export function buildCanonicalRestaurantPhotoUrl(restaurantKey: string): string {
-  return `/api/v1/restaurants/${encodeURIComponent(restaurantKey)}/photo?max_width=800`;
+  return `/api/v1/restaurants/${encodeURIComponent(restaurantKey)}/photo?maxWidth=800`;
 }
 
 export function isAllowedPhotoProxyUrl(value: string): boolean {

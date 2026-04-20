@@ -9,9 +9,11 @@ import type { MapProviderType, Restaurant } from '@/types/restaurant';
 import {
   DEFAULT_PAGE_SIZE,
   DEFAULT_RADIUS_M,
+  DETAILS_CACHE_CONTROL,
   MAX_PAGE_SIZE,
   MAX_RADIUS_M,
   MIN_RADIUS_M,
+  STALE_DETAILS_CACHE_CONTROL,
 } from './capabilities';
 import {
   applyProviderOverride,
@@ -35,9 +37,11 @@ import type {
   ApiRestaurantRecord,
   ApiSource,
   AppliedRestaurantFilters,
-  ProviderSearchStats,
+  ProviderExecutionStatus,
+  RestaurantDetailsResult,
+  RestaurantFeature,
   RestaurantPhotoPayload,
-  RestaurantSearchRequest,
+  RestaurantSearchInput,
   RestaurantSearchResult,
   RestaurantSortBy,
   SortDirection,
@@ -49,10 +53,8 @@ const GOOGLE_LANGUAGE_CODE: Record<AppLocale, string> = {
   en: 'en',
 };
 
-const PAGE_TOKEN_PREFIX = 'page_v1_';
-
 export async function searchRestaurants(params: {
-  input: RestaurantSearchRequest;
+  input: RestaurantSearchInput;
   acceptLanguage: string | null;
 }): Promise<RestaurantSearchResult> {
   const locale = resolveRequestLocale(params.input.locale, params.acceptLanguage);
@@ -63,22 +65,22 @@ export async function searchRestaurants(params: {
 
   assertValidCoordinates(lat, lng);
 
-  const radiusM = normalizeRadius(params.input.radius_m);
-  const minRating = normalizeMinRating(params.input.filters?.min_rating);
-  const maxPriceLevel = normalizeMaxPriceLevel(params.input.filters?.max_price_level);
-  const partySize = normalizePartySize(params.input.filters?.party_size);
-  const requiredFeatures = normalizeRequiredFeatures(params.input.filters?.required_features);
-  const openNow = params.input.filters?.open_now === true;
+  const radiusM = normalizeRadius(params.input.radiusM);
+  const minRating = normalizeMinRating(params.input.filters?.minRating);
+  const maxPriceLevel = normalizeMaxPriceLevel(params.input.filters?.maxPriceLevel);
+  const partySize = normalizePartySize(params.input.filters?.partySize);
+  const requiredFeatures = normalizeRequiredFeatures(params.input.filters?.requiredFeatures);
+  const openNow = params.input.filters?.openNow === true;
   const sortBy = normalizeSortBy(params.input.sort?.by);
   const sortDirection = normalizeSortDirection(params.input.sort?.direction, sortBy);
-  const pageSize = normalizePageSize(params.input.pagination?.page_size);
-  const pageOffset = decodePageToken(params.input.pagination?.page_token);
+  const pageSize = normalizePageSize(params.input.pagination?.pageSize);
+  const offset = normalizeOffset(params.input.pagination?.offset);
 
   const baseResolution = await resolveGeoPlan({ lat, lng, locale });
   const resolved = applyProviderOverride(baseResolution, requestedProvider);
 
   const searchKeyword = buildSearchKeyword({
-    categoryId: params.input.query?.category_id ?? undefined,
+    categoryId: params.input.query?.categoryId ?? undefined,
     keyword: params.input.query?.keyword ?? undefined,
     locale,
     primaryProvider: resolved.provider,
@@ -103,10 +105,9 @@ export async function searchRestaurants(params: {
   });
   normalized = sortRestaurants(normalized, sortBy, sortDirection);
 
-  const pagedRestaurants = normalized.slice(pageOffset, pageOffset + pageSize);
+  const pagedRestaurants = normalized.slice(offset, offset + pageSize);
   const pagedResults = await Promise.all(pagedRestaurants.map(enrichRestaurantForApi));
-  const nextPageToken =
-    pageOffset + pageSize < normalized.length ? encodePageToken(pageOffset + pageSize) : null;
+  const nextOffset = offset + pageSize < normalized.length ? offset + pageSize : null;
 
   const appliedFilters: AppliedRestaurantFilters = {
     openNow,
@@ -122,28 +123,18 @@ export async function searchRestaurants(params: {
     locale,
     resolved,
     appliedFilters,
-    partialResults: providerResults.failures.length > 0 && providerResults.successes.length > 0,
-    warnings: buildWarnings(providerResults.successes, providerResults.failures),
+    partialResults:
+      providerResults.providerStatuses.some((status) => status.status === 'failed') &&
+      providerResults.providerStatuses.some((status) => status.status === 'success'),
+    providerStatuses: providerResults.providerStatuses,
     results: pagedResults,
     pagination: {
       pageSize,
-      nextPageToken,
+      offset,
+      nextOffset,
       returned: pagedResults.length,
+      total: normalized.length,
     },
-    providerStats: providerResults.stats,
-  };
-}
-
-export function serializeApiRestaurant(record: ApiRestaurantRecord) {
-  const { restaurantKey, providerRefs, ...restaurant } = record;
-
-  return {
-    restaurant_key: restaurantKey,
-    ...restaurant,
-    provider_refs: providerRefs.map((ref) => ({
-      provider: ref.provider,
-      provider_id: ref.providerId,
-    })),
   };
 }
 
@@ -160,7 +151,7 @@ export async function getRestaurantDetails(params: {
   restaurantKey: string;
   locale: string | null | undefined;
   acceptLanguage: string | null;
-}): Promise<ApiRestaurantRecord> {
+}): Promise<RestaurantDetailsResult> {
   const storedRecord = await getStoredRestaurantRecord(params.restaurantKey);
   if (!storedRecord) {
     throw new ApiRouteError({
@@ -174,34 +165,20 @@ export async function getRestaurantDetails(params: {
   const snapshot = storedRecord.snapshot
     ? restoreRestaurantFromSnapshot(storedRecord.snapshot)
     : null;
-  let fresh: Restaurant | null = null;
-  let refreshError: ApiRouteError | null = null;
+  const refresh = await fetchRestaurantDetailsByRefs(
+    storedRecord.providerRefs,
+    locale,
+    storedRecord.source,
+  );
 
-  try {
-    fresh = await fetchRestaurantDetailsByRefs(
-      storedRecord.providerRefs,
-      locale,
-      storedRecord.source,
-    );
-  } catch (error) {
-    refreshError = normalizeDetailRefreshError(error);
-  }
-
-  if (!fresh && !snapshot) {
-    throw (
-      refreshError ??
-      new ApiRouteError({
-        status: 404,
-        code: 'not_found',
-        message: 'Restaurant not found',
-      })
-    );
+  if (!refresh.restaurant && !snapshot) {
+    throw selectDetailRefreshError(refresh.errors);
   }
 
   const restaurant = coalesceRestaurantDetails({
     storedRecord,
     snapshot,
-    fresh,
+    fresh: refresh.restaurant,
   });
 
   const providerRefs = dedupeProviderRefs([
@@ -209,13 +186,26 @@ export async function getRestaurantDetails(params: {
     ...storedRecord.providerRefs,
   ]);
   const photo = inferRestaurantPhotoPayload(restaurant, providerRefs) ?? storedRecord.photo;
+  const freshnessState =
+    refresh.providerStatuses.filter((status) => status.status === 'success').length === 0
+      ? 'snapshot'
+      : refresh.providerStatuses.some((status) => status.status === 'failed')
+        ? 'partial_live'
+        : 'live';
 
-  return buildApiRestaurantRecord({
-    restaurant,
-    restaurantKey: storedRecord.restaurantKey,
-    providerRefs,
-    photo,
-  });
+  return {
+    restaurant: buildApiRestaurantRecord({
+      restaurant,
+      restaurantKey: storedRecord.restaurantKey,
+      providerRefs,
+      photo,
+    }),
+    freshness: {
+      state: freshnessState,
+    },
+    providerStatuses: refresh.providerStatuses,
+    cacheControl: freshnessState === 'live' ? DETAILS_CACHE_CONTROL : STALE_DETAILS_CACHE_CONTROL,
+  };
 }
 
 async function fetchProviderResults(params: {
@@ -227,8 +217,7 @@ async function fetchProviderResults(params: {
   keyword?: string;
 }): Promise<{
   successes: Array<{ provider: MapProviderType; results: Restaurant[] }>;
-  failures: Array<{ provider: MapProviderType; error: unknown }>;
-  stats: ProviderSearchStats[];
+  providerStatuses: ProviderExecutionStatus[];
 }> {
   const searchOptions = {
     lat: params.lat,
@@ -245,33 +234,37 @@ async function fetchProviderResults(params: {
   );
 
   const successes: Array<{ provider: MapProviderType; results: Restaurant[] }> = [];
-  const failures: Array<{ provider: MapProviderType; error: unknown }> = [];
-  const stats: ProviderSearchStats[] = [];
+  const errors: ApiRouteError[] = [];
+  const providerStatuses: ProviderExecutionStatus[] = [];
 
   settled.forEach((result, index) => {
     const provider = params.providerPlan[index];
     if (result.status === 'fulfilled') {
       successes.push(result.value);
-      stats.push({
+      providerStatuses.push({
         provider,
+        status: 'success',
         rawResults: result.value.results.length,
-        normalizedResults: result.value.results.length,
       });
-    } else {
-      failures.push({ provider, error: result.reason });
-      console.error(`[api] ${provider} provider search failed:`, result.reason);
+      return;
     }
+
+    const normalizedError = normalizeProviderSearchError(provider, result.reason);
+    errors.push(normalizedError);
+    providerStatuses.push({
+      provider,
+      status: 'failed',
+      errorCode: normalizedError.code,
+      errorMessage: normalizedError.message,
+    });
+    console.error(`[api] ${provider} provider search failed:`, result.reason);
   });
 
   if (successes.length === 0) {
-    throw new ApiRouteError({
-      status: 502,
-      code: 'upstream_error',
-      message: 'All provider searches failed',
-    });
+    throw selectSearchError(errors);
   }
 
-  return { successes, failures, stats };
+  return { successes, providerStatuses };
 }
 
 async function searchSingleProvider(
@@ -364,7 +357,7 @@ function applyRestaurantFilters(
     minRating?: number;
     maxPriceLevel?: number;
     partySize?: number;
-    requiredFeatures: string[];
+    requiredFeatures: RestaurantFeature[];
   },
 ): Restaurant[] {
   let filtered = restaurants;
@@ -455,25 +448,15 @@ function buildApiRestaurantRecord(params: {
   };
 }
 
-function buildWarnings(
-  successes: Array<{ provider: MapProviderType; results: Restaurant[] }>,
-  failures: Array<{ provider: MapProviderType; error: unknown }>,
-): string[] {
-  if (successes.length === 0 || failures.length === 0) {
-    return [];
-  }
-
-  const successfulProviders = successes.map((entry) => entry.provider).join('+');
-  return failures.map(
-    ({ provider }) => `${provider} provider failed; returning ${successfulProviders}-only results`,
-  );
-}
-
 async function fetchRestaurantDetailsByRefs(
   providerRefs: ApiProviderRef[],
   locale: AppLocale,
   source: ApiSource,
-): Promise<Restaurant | null> {
+): Promise<{
+  restaurant: Restaurant | null;
+  providerStatuses: ProviderExecutionStatus[];
+  errors: ApiRouteError[];
+}> {
   const detailResults = await Promise.allSettled(
     providerRefs.map(async (ref) => ({
       provider: ref.provider,
@@ -481,34 +464,57 @@ async function fetchRestaurantDetailsByRefs(
     })),
   );
 
-  const successes = detailResults
-    .filter(
-      (
-        result,
-      ): result is PromiseFulfilledResult<{ provider: MapProviderType; restaurant: Restaurant }> =>
-        result.status === 'fulfilled',
-    )
-    .map((result) => result.value);
-  const failures = detailResults
-    .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
-    .map((result) => normalizeDetailRefreshError(result.reason));
+  const successes: Array<{ provider: MapProviderType; restaurant: Restaurant }> = [];
+  const providerStatuses: ProviderExecutionStatus[] = [];
+  const errors: ApiRouteError[] = [];
+
+  detailResults.forEach((result, index) => {
+    const provider = providerRefs[index]?.provider;
+    if (!provider) return;
+
+    if (result.status === 'fulfilled') {
+      successes.push(result.value);
+      providerStatuses.push({
+        provider,
+        status: 'success',
+      });
+      return;
+    }
+
+    const normalizedError = normalizeDetailRefreshError(result.reason);
+    errors.push(normalizedError);
+    providerStatuses.push({
+      provider,
+      status: 'failed',
+      errorCode: normalizedError.code,
+      errorMessage: normalizedError.message,
+    });
+  });
 
   if (successes.length === 0) {
-    throw selectDetailRefreshError(failures);
+    return { restaurant: null, providerStatuses, errors };
   }
 
   const googleRestaurant = successes.find((entry) => entry.provider === 'google')?.restaurant;
   const hotpepperRestaurant = successes.find((entry) => entry.provider === 'hotpepper')?.restaurant;
 
   if (googleRestaurant && hotpepperRestaurant) {
-    return mergeResults([googleRestaurant], [hotpepperRestaurant])[0] ?? googleRestaurant;
+    return {
+      restaurant: mergeResults([googleRestaurant], [hotpepperRestaurant])[0] ?? googleRestaurant,
+      providerStatuses,
+      errors,
+    };
   }
 
-  return (
-    successes.find((entry) => entry.provider === getPrimaryProviderForSource(source))?.restaurant ??
-    successes[0]?.restaurant ??
-    null
-  );
+  return {
+    restaurant:
+      successes.find((entry) => entry.provider === getPrimaryProviderForSource(source))
+        ?.restaurant ??
+      successes[0]?.restaurant ??
+      null,
+    providerStatuses,
+    errors,
+  };
 }
 
 async function fetchSingleRestaurantDetail(
@@ -575,7 +581,7 @@ function coalesceRestaurantDetails(params: {
     });
   }
 
-  const merged: Restaurant = {
+  return {
     ...(snapshot ?? {}),
     ...base,
     id: base.id || snapshot?.id || storedRecord.providerRefs[0]?.providerId || '',
@@ -592,12 +598,10 @@ function coalesceRestaurantDetails(params: {
     photoRef: base.photoRef ?? (storedRecord.photo?.ref ? storedRecord.photo.ref : undefined),
     photoUrl: base.photoUrl ?? (storedRecord.photo?.url ? storedRecord.photo.url : undefined),
   };
-
-  return merged;
 }
 
 function normalizeRequestedProvider(
-  value: RestaurantSearchRequest['provider'],
+  value: RestaurantSearchInput['provider'],
 ): MapProviderType | 'auto' {
   if (value == null || value === 'auto') return 'auto';
   if (value === 'google' || value === 'hotpepper' || value === 'amap') return value;
@@ -617,8 +621,8 @@ function normalizeRadius(value: number | undefined): number {
     throw new ApiRouteError({
       status: 400,
       code: 'invalid_argument',
-      message: `radius_m must be between ${MIN_RADIUS_M} and ${MAX_RADIUS_M}`,
-      details: { field: 'radius_m' },
+      message: `radiusM must be between ${MIN_RADIUS_M} and ${MAX_RADIUS_M}`,
+      details: { field: 'radiusM' },
     });
   }
 
@@ -633,8 +637,8 @@ function normalizeMinRating(value: number | null | undefined): number | undefine
     throw new ApiRouteError({
       status: 400,
       code: 'invalid_argument',
-      message: 'min_rating must be between 0 and 5',
-      details: { field: 'filters.min_rating' },
+      message: 'filters.minRating must be between 0 and 5',
+      details: { field: 'filters.minRating' },
     });
   }
 
@@ -649,8 +653,8 @@ function normalizeMaxPriceLevel(value: number | null | undefined): number | unde
     throw new ApiRouteError({
       status: 400,
       code: 'invalid_argument',
-      message: 'max_price_level must be between 0 and 4',
-      details: { field: 'filters.max_price_level' },
+      message: 'filters.maxPriceLevel must be between 0 and 4',
+      details: { field: 'filters.maxPriceLevel' },
     });
   }
 
@@ -665,26 +669,19 @@ function normalizePartySize(value: number | null | undefined): number | undefine
     throw new ApiRouteError({
       status: 400,
       code: 'invalid_argument',
-      message: 'party_size must be between 1 and 50',
-      details: { field: 'filters.party_size' },
+      message: 'filters.partySize must be between 1 and 50',
+      details: { field: 'filters.partySize' },
     });
   }
 
   return Math.round(partySize);
 }
 
-function normalizeRequiredFeatures(value: string[] | null | undefined): string[] {
+function normalizeRequiredFeatures(
+  value: RestaurantFeature[] | null | undefined,
+): RestaurantFeature[] {
   if (!value) return [];
-  if (!Array.isArray(value) || value.some((feature) => typeof feature !== 'string')) {
-    throw new ApiRouteError({
-      status: 400,
-      code: 'invalid_argument',
-      message: 'required_features must be an array of strings',
-      details: { field: 'filters.required_features' },
-    });
-  }
-
-  return [...new Set(value.map((feature) => feature.trim()).filter(Boolean))];
+  return [...new Set(value)];
 }
 
 function normalizeSortBy(value: string | undefined): RestaurantSortBy {
@@ -726,56 +723,58 @@ function normalizePageSize(value: number | undefined): number {
     throw new ApiRouteError({
       status: 400,
       code: 'invalid_argument',
-      message: `pagination.page_size must be between 1 and ${MAX_PAGE_SIZE}`,
-      details: { field: 'pagination.page_size' },
+      message: `pagination.pageSize must be between 1 and ${MAX_PAGE_SIZE}`,
+      details: { field: 'pagination.pageSize' },
     });
   }
 
   return Math.round(pageSize);
 }
 
-function encodePageToken(offset: number): string {
-  return `${PAGE_TOKEN_PREFIX}${Buffer.from(JSON.stringify({ v: 1, offset }), 'utf8').toString('base64url')}`;
-}
+function normalizeOffset(value: number | undefined): number {
+  if (value == null) return 0;
+  const offset = Number(value);
 
-function decodePageToken(value: string | null | undefined): number {
-  if (!value) return 0;
-  if (!value.startsWith(PAGE_TOKEN_PREFIX)) {
+  if (!Number.isFinite(offset) || offset < 0) {
     throw new ApiRouteError({
       status: 400,
       code: 'invalid_argument',
-      message: 'pagination.page_token is invalid',
-      details: { field: 'pagination.page_token' },
+      message: 'pagination.offset must be greater than or equal to 0',
+      details: { field: 'pagination.offset' },
     });
   }
 
-  try {
-    const encoded = value.slice(PAGE_TOKEN_PREFIX.length);
-    const parsed = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as {
-      v?: number;
-      offset?: number;
-    };
-
-    const offset = parsed.offset;
-
-    if (parsed.v !== 1 || !Number.isInteger(offset) || offset == null || offset < 0) {
-      throw new Error('invalid token');
-    }
-
-    return offset;
-  } catch {
-    throw new ApiRouteError({
-      status: 400,
-      code: 'invalid_argument',
-      message: 'pagination.page_token is invalid',
-      details: { field: 'pagination.page_token' },
-    });
-  }
+  return Math.round(offset);
 }
 
 function getPrimaryProviderForSource(source: ApiSource): MapProviderType {
   if (source === 'hotpepper' || source === 'amap') return source;
   return 'google';
+}
+
+function normalizeProviderSearchError(provider: MapProviderType, error: unknown): ApiRouteError {
+  if (error instanceof ApiRouteError) {
+    return error;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  const normalizedMessage = message.toLowerCase();
+
+  if (normalizedMessage.includes('status 429')) {
+    return new ApiRouteError({
+      status: 429,
+      code: 'rate_limited',
+      message: `${provider} search request was rate limited`,
+      details: { provider },
+    });
+  }
+
+  return new ApiRouteError({
+    status: 502,
+    code: 'upstream_error',
+    message: `${provider} search failed`,
+    details: { provider },
+  });
 }
 
 function normalizeProviderDetailError(provider: MapProviderType, error: unknown): ApiRouteError {
@@ -820,6 +819,27 @@ function normalizeDetailRefreshError(error: unknown): ApiRouteError {
         code: 'upstream_error',
         message: 'Restaurant details refresh failed',
       });
+}
+
+function selectSearchError(errors: ApiRouteError[]): ApiRouteError {
+  if (errors.length === 0) {
+    return new ApiRouteError({
+      status: 502,
+      code: 'upstream_error',
+      message: 'All provider searches failed',
+    });
+  }
+
+  return (
+    errors.find(
+      (error) =>
+        error.code === 'provider_unavailable' ||
+        error.code === 'quota_exhausted' ||
+        error.code === 'rate_limited',
+    ) ??
+    errors.find((error) => error.code === 'upstream_error') ??
+    errors[0]
+  );
 }
 
 function selectDetailRefreshError(errors: ApiRouteError[]): ApiRouteError {

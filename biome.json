@@ -35,7 +35,7 @@
     }
   },
   "files": {
-    "includes": ["src/**"],
-    "experimentalScannerIgnores": [".next", "node_modules", "public/sw.js"]
+    "includes": ["src/**", "!src/generated/**"],
+    "experimentalScannerIgnores": [".next", "node_modules", "public/sw.js", "src/generated/**"]
   }
 }

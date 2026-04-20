@@ -26,7 +26,9 @@ export async function GET(
     }
 
     const url = new URL(request.url);
-    const maxWidth = normalizePhotoWidth(url.searchParams.get('max_width'));
+    const maxWidth = normalizePhotoWidth(
+      url.searchParams.get('maxWidth') ?? url.searchParams.get('max_width'),
+    );
     const upstreamResponse = record.photo.ref
       ? await fetchGooglePhotoMedia(record.photo.ref, maxWidth)
       : record.photo.url

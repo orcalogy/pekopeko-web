@@ -19,6 +19,10 @@ pnpm typecheck  # TypeScript
 pnpm check      # Biome check
 pnpm lint       # Biome write mode (see package.json: biome check --write ./src)
 pnpm format     # Biome format
+pnpm openapi:validate        # Validate the OpenAPI schema
+pnpm openapi:generate:ts     # Generate the TypeScript client with openapi-generator
+pnpm openapi:generate:flutter # Generate the Flutter client with openapi-generator
+pnpm openapi:generate        # Validate + generate both clients
 ```
 
 ## Setup
@@ -60,9 +64,26 @@ pnpm prisma:migrate:deploy
 pnpm dev
 ```
 
+## API Contract
+
+`openapi/pekopeko-api.yaml` is the source of truth for `/api/v1`.
+
+- The schema is validated with `pnpm openapi:validate`.
+- TypeScript client/models are generated into `src/generated/api`.
+- Flutter client/models are generated into `generated/flutter_api`.
+- The generated TypeScript output is intentionally excluded from Biome checks.
+
+The current `v1` contract is schema-first and intentionally stricter than the old ad hoc JSON:
+
+- request and response fields use camelCase
+- search pagination is explicit offset pagination, not opaque page tokens
+- search exposes structured `providerStatuses`
+- restaurant details return `{ restaurant, freshness, providerStatuses }`
+- capabilities publish search enums, feature codes, and category metadata
+
 ## Live Provider Verification
 
-With `.env.local` populated and the Prisma migration applied, the most useful end-to-end check is the v1 search API because it returns both `restaurant_key` and `provider_refs`.
+With `.env.local` populated and the Prisma migration applied, the most useful end-to-end check is the v1 search API because it returns both `restaurantKey` and `providerRefs`.
 
 Start the app:
 
@@ -76,39 +97,39 @@ Then verify the three core behaviors:
 
 ```bash
 curl -s -H 'content-type: application/json' -H 'accept-language: ja' \
-  -d '{"locale":"ja","provider":"auto","location":{"lat":35.6905484,"lng":139.7017888},"radius_m":400,"query":{"keyword":"good spoon Handmade Cheese&Pizzeria ルミネ新宿店"},"sort":{"by":"distance","direction":"asc"}}' \
+  -d '{"locale":"ja","provider":"auto","location":{"lat":35.6905484,"lng":139.7017888},"radiusM":400,"query":{"keyword":"good spoon Handmade Cheese&Pizzeria ルミネ新宿店"},"sort":{"by":"distance","direction":"asc"}}' \
   http://127.0.0.1:3000/api/v1/restaurants/search
 ```
 
 Expected shape:
 - one `results[]` entry
 - `source: "hybrid"`
-- `provider_refs` contains both `google` and `hotpepper`
+- `providerRefs` contains both `google` and `hotpepper`
 
 2. Descriptor-heavy Google and HotPepper names still merge when the underlying address matches:
 
 ```bash
 curl -s -H 'content-type: application/json' -H 'accept-language: ja' \
-  -d '{"locale":"ja","provider":"auto","location":{"lat":35.6905484,"lng":139.7017888},"radius_m":300,"query":{"keyword":"じぶんどき 新宿東口駅前店"},"sort":{"by":"distance","direction":"asc"}}' \
+  -d '{"locale":"ja","provider":"auto","location":{"lat":35.6905484,"lng":139.7017888},"radiusM":300,"query":{"keyword":"じぶんどき 新宿東口駅前店"},"sort":{"by":"distance","direction":"asc"}}' \
   http://127.0.0.1:3000/api/v1/restaurants/search
 ```
 
 Expected shape:
 - one `results[]` entry
 - `source: "hybrid"`
-- `provider_refs` contains both providers even though Google may prepend a descriptor like `全席個室`
+- `providerRefs` contains both providers even though Google may prepend a descriptor like `全席個室`
 
 3. Same-brand nearby branches stay separate and get different `restaurant_key` values:
 
 ```bash
 curl -s -H 'content-type: application/json' -H 'accept-language: ja' \
-  -d '{"locale":"ja","provider":"auto","location":{"lat":35.690921,"lng":139.700258},"radius_m":800,"query":{"keyword":"サイゼリヤ"},"sort":{"by":"distance","direction":"asc"}}' \
+  -d '{"locale":"ja","provider":"auto","location":{"lat":35.690921,"lng":139.700258},"radiusM":800,"query":{"keyword":"サイゼリヤ"},"sort":{"by":"distance","direction":"asc"}}' \
   http://127.0.0.1:3000/api/v1/restaurants/search
 ```
 
 Expected shape:
 - multiple `results[]` entries
-- each branch keeps its own `restaurant_key`
+- each branch keeps its own `restaurantKey`
 - no cross-branch key reuse just because the chain shares one website host
 
 If you want a clean dev-only rerun of the registry tests, truncating `restaurant_aliases` and `restaurants` is fine before repeating the queries.

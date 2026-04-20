@@ -1,6 +1,7 @@
 import { DETAILS_CACHE_CONTROL } from '@/lib/api/capabilities';
 import { createRequestId, errorResponse, jsonResponse } from '@/lib/api/http';
-import { getRestaurantDetails, serializeApiRestaurant } from '@/lib/api/restaurants';
+import { getRestaurantDetails } from '@/lib/api/restaurants';
+import { serializeRestaurantDetailsResponse } from '@/lib/api/serializers';
 
 export async function GET(
   request: Request,
@@ -16,9 +17,9 @@ export async function GET(
       acceptLanguage: request.headers.get('accept-language'),
     });
 
-    return jsonResponse(serializeApiRestaurant(restaurant), {
+    return jsonResponse(serializeRestaurantDetailsResponse(restaurant, requestId), {
       requestId,
-      cacheControl: DETAILS_CACHE_CONTROL,
+      cacheControl: restaurant.cacheControl ?? DETAILS_CACHE_CONTROL,
       vary: ['Accept-Language'],
     });
   } catch (error) {

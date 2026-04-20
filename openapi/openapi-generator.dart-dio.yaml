@@ -1,0 +1,9 @@
+pubName: pekopeko_api
+pubLibrary: pekopeko.api
+pubDescription: Generated Flutter client for the PekoPeko Restaurant API
+pubVersion: 1.0.0
+pubAuthor: PekoPeko
+pubHomepage: https://github.com/x17/pekopeko-web
+serializationLibrary: built_value
+enumUnknownDefaultCase: true
+dateLibrary: core

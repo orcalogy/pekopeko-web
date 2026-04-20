@@ -2,6 +2,8 @@
 
 ## Status
 
+- Contract source of truth: `openapi/pekopeko-api.yaml`
+- This document is now a design companion, not the exact wire contract. For the precise `/api/v1` shape, use the OpenAPI schema and generated clients.
 - Audience: the agent implementing the backend in `~/code_repo/pekopeko`
 - Scope: restaurant search, region detection, media proxying, and backend capability discovery
 - Goal: provide one stable API for the Next.js web app and the Flutter mobile app while keeping provider keys server-side

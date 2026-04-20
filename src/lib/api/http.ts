@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse } from 'next/server.js';
 
 export type ApiErrorCode =
   | 'invalid_argument'
@@ -41,9 +41,9 @@ export function createRequestId(): string {
   return crypto.randomUUID();
 }
 
-export async function readJsonBody<T>(request: Request): Promise<T> {
+export async function readJsonBody(request: Request): Promise<unknown> {
   try {
-    return (await request.json()) as T;
+    return await request.json();
   } catch {
     throw new ApiRouteError({
       status: 400,
@@ -88,7 +88,7 @@ export function errorResponse(error: unknown, requestId: string): NextResponse {
       error: {
         code: handled.code,
         message: handled.message,
-        request_id: requestId,
+        requestId,
         ...(handled.details ? { details: handled.details } : {}),
       },
     },

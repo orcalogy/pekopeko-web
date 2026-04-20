@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { createRequestId, jsonResponse, legacyErrorResponse } from '@/lib/api/http';
 import { searchRestaurants, toCompatibilityRestaurant } from '@/lib/api/restaurants';
-import type { RestaurantSearchRequest } from '@/lib/api/types';
+import type { RestaurantSearchInput } from '@/lib/api/types';
 
 export async function GET(request: NextRequest) {
   const requestId = createRequestId();
@@ -18,19 +18,19 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const input: RestaurantSearchRequest = {
+    const input: RestaurantSearchInput = {
       locale: searchParams.get('locale') ?? undefined,
-      provider: (searchParams.get('provider') as RestaurantSearchRequest['provider']) ?? 'auto',
+      provider: (searchParams.get('provider') as RestaurantSearchInput['provider']) ?? 'auto',
       location: {
         lat: Number(latParam),
         lng: Number(lngParam),
       },
-      radius_m: Number(searchParams.get('radius') || '2000'),
+      radiusM: Number(searchParams.get('radius') || '2000'),
       query: {
         keyword: searchParams.get('keyword') ?? undefined,
       },
       filters: {
-        open_now: searchParams.get('openNow') === 'true',
+        openNow: searchParams.get('openNow') === 'true',
       },
       sort: {
         by: 'distance',

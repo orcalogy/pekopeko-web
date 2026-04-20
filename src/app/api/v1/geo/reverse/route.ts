@@ -1,22 +1,18 @@
 import { GEO_CACHE_CONTROL } from '@/lib/api/capabilities';
-import { resolveGeoPlan, resolveRequestLocale, serializeGeoResolution } from '@/lib/api/geo';
+import { resolveGeoPlan, resolveRequestLocale } from '@/lib/api/geo';
 import { createRequestId, errorResponse, jsonResponse, readJsonBody } from '@/lib/api/http';
-
-interface ReverseGeoRequest {
-  lat?: number;
-  lng?: number;
-  locale?: string;
-}
+import { parseReverseGeoRequest } from '@/lib/api/request-parsers';
+import { serializeGeoResolution } from '@/lib/api/serializers';
 
 export async function POST(request: Request) {
   const requestId = createRequestId();
 
   try {
-    const body = await readJsonBody<ReverseGeoRequest>(request);
+    const body = parseReverseGeoRequest(await readJsonBody(request));
     const locale = resolveRequestLocale(body.locale, request.headers.get('accept-language'));
     const resolution = await resolveGeoPlan({
-      lat: Number(body.lat),
-      lng: Number(body.lng),
+      lat: body.lat,
+      lng: body.lng,
       locale,
     });
 

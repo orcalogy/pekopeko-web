@@ -142,7 +142,7 @@ export function serializeGeoResolution(resolution: GeoResolution) {
   return {
     country: resolution.country,
     provider: resolution.provider,
-    provider_plan: resolution.providerPlan,
+    providerPlan: resolution.providerPlan,
     strategy: resolution.strategy,
     confidence: resolution.confidence,
   };

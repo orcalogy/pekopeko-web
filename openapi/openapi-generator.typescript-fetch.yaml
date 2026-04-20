@@ -1,0 +1,11 @@
+supportsES6: true
+withInterfaces: true
+useSingleRequestParameter: true
+stringEnums: true
+enumUnknownDefaultCase: true
+modelPropertyNaming: original
+paramNaming: original
+enumPropertyNaming: original
+fileNaming: camelCase
+prefixParameterInterfaces: true
+importFileExtension: .ts

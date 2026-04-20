@@ -1,5 +1,6 @@
-import type { AppLocale } from '@/lib/app-locale';
-import type { MapProviderType, Restaurant } from '@/types/restaurant';
+import type { MapProviderType, Restaurant } from '../../types/restaurant.ts';
+import type { AppLocale } from '../app-locale.ts';
+import type { ApiErrorCode } from './http.ts';
 
 export type ApiSource = 'google' | 'hotpepper' | 'amap' | 'hybrid';
 export type ProviderOverride = MapProviderType | 'auto';
@@ -12,6 +13,43 @@ export type GeoResolutionStrategy =
 export type GeoResolutionConfidence = 'high' | 'medium' | 'low';
 export type RestaurantSortBy = 'distance' | 'rating';
 export type SortDirection = 'asc' | 'desc';
+export type DetailFreshnessState = 'live' | 'partial_live' | 'snapshot';
+export type ProviderOperationStatus = 'success' | 'failed';
+
+export const PROVIDER_MODES = ['auto', 'google', 'hotpepper', 'amap'] as const satisfies readonly [
+  ProviderOverride,
+  ...ProviderOverride[],
+];
+export const GEO_RESOLUTION_STRATEGIES = [
+  'china_amap',
+  'hybrid_japan',
+  'google_global',
+  'fallback_heuristic',
+  'manual_override',
+] as const satisfies readonly [GeoResolutionStrategy, ...GeoResolutionStrategy[]];
+export const GEO_RESOLUTION_CONFIDENCES = ['high', 'medium', 'low'] as const satisfies readonly [
+  GeoResolutionConfidence,
+  ...GeoResolutionConfidence[],
+];
+export const RESTAURANT_SORT_OPTIONS = ['distance', 'rating'] as const satisfies readonly [
+  RestaurantSortBy,
+  ...RestaurantSortBy[],
+];
+export const SORT_DIRECTIONS = ['asc', 'desc'] as const satisfies readonly [
+  SortDirection,
+  ...SortDirection[],
+];
+export const RESTAURANT_FEATURES = [
+  'wifi',
+  'lunch',
+  'private_room',
+  'english',
+  'non_smoking',
+  'card',
+  'parking',
+] as const;
+
+export type RestaurantFeature = (typeof RESTAURANT_FEATURES)[number];
 
 export interface ApiProviderRef {
   provider: MapProviderType;
@@ -42,32 +80,32 @@ export interface GeoResolution {
   confidence: GeoResolutionConfidence;
 }
 
-export interface RestaurantSearchRequest {
+export interface RestaurantSearchInput {
   locale?: string;
   provider?: ProviderOverride;
   location?: {
     lat?: number;
     lng?: number;
   };
-  radius_m?: number;
+  radiusM?: number;
   query?: {
     keyword?: string | null;
-    category_id?: string | null;
+    categoryId?: string | null;
   };
   filters?: {
-    open_now?: boolean;
-    min_rating?: number | null;
-    max_price_level?: number | null;
-    party_size?: number | null;
-    required_features?: string[] | null;
+    openNow?: boolean;
+    minRating?: number | null;
+    maxPriceLevel?: number | null;
+    partySize?: number | null;
+    requiredFeatures?: RestaurantFeature[] | null;
   };
   sort?: {
     by?: RestaurantSortBy;
     direction?: SortDirection;
   };
   pagination?: {
-    page_size?: number;
-    page_token?: string | null;
+    pageSize?: number;
+    offset?: number;
   };
 }
 
@@ -76,15 +114,17 @@ export interface AppliedRestaurantFilters {
   minRating?: number;
   maxPriceLevel?: number;
   partySize?: number;
-  requiredFeatures: string[];
+  requiredFeatures: RestaurantFeature[];
   sortBy: RestaurantSortBy;
   sortDirection: SortDirection;
 }
 
-export interface ProviderSearchStats {
+export interface ProviderExecutionStatus {
   provider: MapProviderType;
-  rawResults: number;
-  normalizedResults: number;
+  status: ProviderOperationStatus;
+  rawResults?: number;
+  errorCode?: ApiErrorCode;
+  errorMessage?: string;
 }
 
 export interface RestaurantSearchResult {
@@ -92,12 +132,22 @@ export interface RestaurantSearchResult {
   resolved: GeoResolution;
   appliedFilters: AppliedRestaurantFilters;
   partialResults: boolean;
-  warnings: string[];
+  providerStatuses: ProviderExecutionStatus[];
   results: ApiRestaurantRecord[];
   pagination: {
     pageSize: number;
-    nextPageToken: string | null;
+    offset: number;
+    nextOffset: number | null;
     returned: number;
+    total: number;
   };
-  providerStats: ProviderSearchStats[];
+}
+
+export interface RestaurantDetailsResult {
+  restaurant: ApiRestaurantRecord;
+  freshness: {
+    state: DetailFreshnessState;
+  };
+  providerStatuses: ProviderExecutionStatus[];
+  cacheControl: string;
 }

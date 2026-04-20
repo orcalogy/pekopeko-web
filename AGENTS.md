@@ -11,6 +11,8 @@ pnpm typecheck        # tsc --noEmit
 pnpm check            # Biome lint (no auto-fix)
 pnpm lint             # Biome lint + format (auto-fix)
 pnpm prisma:migrate:deploy  # Apply existing DB migrations before live API checks
+pnpm openapi:validate # Validate the OpenAPI schema
+pnpm openapi:generate # Regenerate TypeScript + Flutter API clients
 ```
 
 Always run `pnpm typecheck` and `pnpm check` before declaring work done.
@@ -85,7 +87,15 @@ Use Next.js `useRouter` from `next/navigation` for all navigation. **Never use `
 Client passes `locale` param to `/api/places/nearby`. The API route maps it to `languageCode` for Google Places. Restaurant names, addresses, types, and hours come back in the user's language.
 
 ### Real API Verification
-For live provider and `restaurantKey` checks, prefer `/api/v1/restaurants/search` over `/api/places/nearby` because the v1 route returns `restaurant_key`, `provider_refs`, provider stats, and the resolved provider plan.
+For live provider and `restaurantKey` checks, prefer `/api/v1/restaurants/search` over `/api/places/nearby` because the v1 route returns `restaurantKey`, `providerRefs`, structured `providerStatuses`, offset pagination, and the resolved provider plan.
+
+### OpenAPI Source Of Truth
+`openapi/pekopeko-api.yaml` is the contract source for `/api/v1`.
+
+- Generate the TypeScript client into `src/generated/api` with `openapi-generator`.
+- Generate the Flutter client into `generated/flutter_api` with `openapi-generator`.
+- Keep handwritten server/domain models separate from generated wire DTOs.
+- The generated TypeScript client is excluded from Biome checks; do not hand-edit generated files.
 
 ### `useSearchParams()` Requires Suspense
 Next.js 16 requires a `<Suspense>` boundary around any component using `useSearchParams()`. See `eat-out/page.tsx` for the pattern.

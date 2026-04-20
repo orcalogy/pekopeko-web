@@ -1,5 +1,14 @@
-import { locales } from '@/lib/app-locale';
-import type { MapProviderType } from '@/types/restaurant';
+import { categories } from '../../data/categories.ts';
+import type { MapProviderType } from '../../types/restaurant.ts';
+import { locales } from '../app-locale.ts';
+import {
+  GEO_RESOLUTION_CONFIDENCES,
+  GEO_RESOLUTION_STRATEGIES,
+  PROVIDER_MODES,
+  RESTAURANT_FEATURES,
+  RESTAURANT_SORT_OPTIONS,
+  SORT_DIRECTIONS,
+} from './types.ts';
 
 export const API_VERSION = 'v1';
 export const SEARCH_RADIUS_PRESETS_M = [
@@ -14,6 +23,8 @@ export const DETAILS_CACHE_CONTROL = 'public, max-age=300, s-maxage=300';
 export const PHOTO_CACHE_CONTROL = 'public, max-age=86400, s-maxage=86400';
 export const CAPABILITIES_CACHE_CONTROL = 'public, max-age=300, s-maxage=300';
 export const GEO_CACHE_CONTROL = 'public, max-age=3600, s-maxage=3600';
+export const STALE_DETAILS_CACHE_CONTROL = 'no-store';
+export const SEARCH_PAGINATION_MODE = 'offset' as const;
 
 export interface ConfiguredProviders {
   google: boolean;
@@ -39,18 +50,32 @@ export function getCapabilities() {
   return {
     version: API_VERSION,
     locales: [...locales],
-    radius_presets_m: [...SEARCH_RADIUS_PRESETS_M],
     providers: {
       google: { configured: providers.google },
       hotpepper: { configured: providers.hotpepper },
       amap: { configured: providers.amap },
     },
-    search: {
-      default_radius_m: DEFAULT_RADIUS_M,
-      min_radius_m: MIN_RADIUS_M,
-      max_radius_m: MAX_RADIUS_M,
-      default_page_size: DEFAULT_PAGE_SIZE,
-      max_page_size: MAX_PAGE_SIZE,
+    geo: {
+      strategies: [...GEO_RESOLUTION_STRATEGIES],
+      confidences: [...GEO_RESOLUTION_CONFIDENCES],
     },
+    search: {
+      defaultRadiusM: DEFAULT_RADIUS_M,
+      minRadiusM: MIN_RADIUS_M,
+      maxRadiusM: MAX_RADIUS_M,
+      radiusPresetsM: [...SEARCH_RADIUS_PRESETS_M],
+      defaultPageSize: DEFAULT_PAGE_SIZE,
+      maxPageSize: MAX_PAGE_SIZE,
+      paginationMode: SEARCH_PAGINATION_MODE,
+      providerModes: [...PROVIDER_MODES],
+      sortBy: [...RESTAURANT_SORT_OPTIONS],
+      sortDirections: [...SORT_DIRECTIONS],
+      requiredFeatures: [...RESTAURANT_FEATURES],
+    },
+    categories: categories.map((category) => ({
+      id: category.id,
+      name: { ...category.name },
+      color: category.color,
+    })),
   };
 }
