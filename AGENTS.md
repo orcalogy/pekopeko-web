@@ -10,6 +10,7 @@ pnpm build            # Production build (Webpack, required by Serwist)
 pnpm typecheck        # tsc --noEmit
 pnpm check            # Biome lint (no auto-fix)
 pnpm lint             # Biome lint + format (auto-fix)
+pnpm prisma:migrate:deploy  # Apply existing DB migrations before live API checks
 ```
 
 Always run `pnpm typecheck` and `pnpm check` before declaring work done.
@@ -83,6 +84,9 @@ Use Next.js `useRouter` from `next/navigation` for all navigation. **Never use `
 ### Map API Locale Sync
 Client passes `locale` param to `/api/places/nearby`. The API route maps it to `languageCode` for Google Places. Restaurant names, addresses, types, and hours come back in the user's language.
 
+### Real API Verification
+For live provider and `restaurantKey` checks, prefer `/api/v1/restaurants/search` over `/api/places/nearby` because the v1 route returns `restaurant_key`, `provider_refs`, provider stats, and the resolved provider plan.
+
 ### `useSearchParams()` Requires Suspense
 Next.js 16 requires a `<Suspense>` boundary around any component using `useSearchParams()`. See `eat-out/page.tsx` for the pattern.
 
@@ -97,3 +101,5 @@ Next.js 16 requires a `<Suspense>` boundary around any component using `useSearc
 - **React 19 `useRef`**: `useRef<T>()` with no argument is a type error. Always pass an initial value.
 - **Build flag**: `pnpm build` uses `--webpack` (not Turbopack) because Serwist requires Webpack for SW bundling. Dev uses `--turbopack`.
 - **Cookie Store API**: Use `window.cookieStore.set()` instead of `document.cookie` to avoid Biome's `noDocumentCookie` rule.
+- **Fresh dev DBs**: If `.env.local` points at a new database, run `pnpm prisma:migrate:deploy` or `pnpm prisma:migrate:dev` before hitting `/api/v1/restaurants/search`, otherwise the registry tables will be missing and live searches will fail.
+- **Identity reruns**: For a clean dev-only rerun of restaurant identity verification, it is acceptable to truncate `restaurant_aliases` and `restaurants` before repeating the live API checks.

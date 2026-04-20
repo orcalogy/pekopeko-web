@@ -48,11 +48,70 @@ pnpm prisma:generate
 pnpm prisma:migrate:dev
 ```
 
+If the database already exists and you only need to apply the checked-in migrations non-interactively, use:
+
+```bash
+pnpm prisma:migrate:deploy
+```
+
 4. Start the dev server:
 
 ```bash
 pnpm dev
 ```
+
+## Live Provider Verification
+
+With `.env.local` populated and the Prisma migration applied, the most useful end-to-end check is the v1 search API because it returns both `restaurant_key` and `provider_refs`.
+
+Start the app:
+
+```bash
+pnpm dev
+```
+
+Then verify the three core behaviors:
+
+1. Same venue merges into one hybrid result with both provider refs:
+
+```bash
+curl -s -H 'content-type: application/json' -H 'accept-language: ja' \
+  -d '{"locale":"ja","provider":"auto","location":{"lat":35.6905484,"lng":139.7017888},"radius_m":400,"query":{"keyword":"good spoon Handmade Cheese&Pizzeria ルミネ新宿店"},"sort":{"by":"distance","direction":"asc"}}' \
+  http://127.0.0.1:3000/api/v1/restaurants/search
+```
+
+Expected shape:
+- one `results[]` entry
+- `source: "hybrid"`
+- `provider_refs` contains both `google` and `hotpepper`
+
+2. Descriptor-heavy Google and HotPepper names still merge when the underlying address matches:
+
+```bash
+curl -s -H 'content-type: application/json' -H 'accept-language: ja' \
+  -d '{"locale":"ja","provider":"auto","location":{"lat":35.6905484,"lng":139.7017888},"radius_m":300,"query":{"keyword":"じぶんどき 新宿東口駅前店"},"sort":{"by":"distance","direction":"asc"}}' \
+  http://127.0.0.1:3000/api/v1/restaurants/search
+```
+
+Expected shape:
+- one `results[]` entry
+- `source: "hybrid"`
+- `provider_refs` contains both providers even though Google may prepend a descriptor like `全席個室`
+
+3. Same-brand nearby branches stay separate and get different `restaurant_key` values:
+
+```bash
+curl -s -H 'content-type: application/json' -H 'accept-language: ja' \
+  -d '{"locale":"ja","provider":"auto","location":{"lat":35.690921,"lng":139.700258},"radius_m":800,"query":{"keyword":"サイゼリヤ"},"sort":{"by":"distance","direction":"asc"}}' \
+  http://127.0.0.1:3000/api/v1/restaurants/search
+```
+
+Expected shape:
+- multiple `results[]` entries
+- each branch keeps its own `restaurant_key`
+- no cross-branch key reuse just because the chain shares one website host
+
+If you want a clean dev-only rerun of the registry tests, truncating `restaurant_aliases` and `restaurants` is fine before repeating the queries.
 
 ## Product Notes
 
