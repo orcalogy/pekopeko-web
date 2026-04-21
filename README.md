@@ -21,8 +21,7 @@ pnpm lint       # Biome write mode (see package.json: biome check --write ./src)
 pnpm format     # Biome format
 pnpm openapi:validate        # Validate the OpenAPI schema
 pnpm openapi:generate:ts     # Generate the TypeScript client with openapi-generator
-pnpm openapi:generate:flutter # Generate the Flutter client with openapi-generator
-pnpm openapi:generate        # Validate + generate both clients
+pnpm openapi:generate        # Validate + generate the TypeScript client
 ```
 
 ## Setup
@@ -70,7 +69,7 @@ pnpm dev
 
 - The schema is validated with `pnpm openapi:validate`.
 - TypeScript client/models are generated into `src/generated/api`.
-- Flutter client/models are generated into `generated/flutter_api`.
+- Dart client generation is intentionally not maintained in this repository.
 - The generated TypeScript output is intentionally excluded from Biome checks.
 
 The current `v1` contract is schema-first and intentionally stricter than the old ad hoc JSON:

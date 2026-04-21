@@ -12,7 +12,7 @@ pnpm check            # Biome lint (no auto-fix)
 pnpm lint             # Biome lint + format (auto-fix)
 pnpm prisma:migrate:deploy  # Apply existing DB migrations before live API checks
 pnpm openapi:validate # Validate the OpenAPI schema
-pnpm openapi:generate # Regenerate TypeScript + Flutter API clients
+pnpm openapi:generate # Regenerate the TypeScript API client
 ```
 
 Always run `pnpm typecheck` and `pnpm check` before declaring work done.
@@ -93,7 +93,7 @@ For live provider and `restaurantKey` checks, prefer `/api/v1/restaurants/search
 `openapi/pekopeko-api.yaml` is the contract source for `/api/v1`.
 
 - Generate the TypeScript client into `src/generated/api` with `openapi-generator`.
-- Generate the Flutter client into `generated/flutter_api` with `openapi-generator`.
+- Dart client generation happens outside this repository.
 - Keep handwritten server/domain models separate from generated wire DTOs.
 - The generated TypeScript client is excluded from Biome checks; do not hand-edit generated files.
 
