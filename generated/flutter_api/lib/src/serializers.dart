@@ -40,11 +40,12 @@ import 'package:pekopeko_api/src/model/provider_operation_status.dart';
 import 'package:pekopeko_api/src/model/provider_operation_status_state.dart';
 import 'package:pekopeko_api/src/model/provider_source.dart';
 import 'package:pekopeko_api/src/model/restaurant_details_freshness.dart';
+import 'package:pekopeko_api/src/model/restaurant_details_resource.dart';
 import 'package:pekopeko_api/src/model/restaurant_details_response.dart';
 import 'package:pekopeko_api/src/model/restaurant_feature.dart';
 import 'package:pekopeko_api/src/model/restaurant_provider_ref.dart';
-import 'package:pekopeko_api/src/model/restaurant_resource.dart';
 import 'package:pekopeko_api/src/model/restaurant_search_filters.dart';
+import 'package:pekopeko_api/src/model/restaurant_search_item.dart';
 import 'package:pekopeko_api/src/model/restaurant_search_pagination.dart';
 import 'package:pekopeko_api/src/model/restaurant_search_pagination_request.dart';
 import 'package:pekopeko_api/src/model/restaurant_search_query.dart';
@@ -85,11 +86,12 @@ part 'serializers.g.dart';
   ProviderOperationStatusState,
   ProviderSource,
   RestaurantDetailsFreshness,
+  RestaurantDetailsResource,
   RestaurantDetailsResponse,
   RestaurantFeature,
   RestaurantProviderRef,
-  RestaurantResource,
   RestaurantSearchFilters,
+  RestaurantSearchItem,
   RestaurantSearchPagination,
   RestaurantSearchPaginationRequest,
   RestaurantSearchQuery,

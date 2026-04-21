@@ -83,4 +83,9 @@ test('details route returns stale freshness metadata with no-store cache headers
       },
     },
   ]);
+
+  const restaurant = payload.restaurant as Record<string, unknown>;
+  assert.equal(restaurant.id, undefined);
+  assert.equal(restaurant.distance, undefined);
+  assert.equal(restaurant.restaurantKey, 'rest_snapshot_1');
 });

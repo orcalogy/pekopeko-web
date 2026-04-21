@@ -7,7 +7,7 @@
 Name | Type
 ------------ | -------------
 `requestId` | string
-`restaurant` | [RestaurantResource](RestaurantResource.md)
+`restaurant` | [RestaurantDetailsResource](RestaurantDetailsResource.md)
 `freshness` | [RestaurantDetailsFreshness](RestaurantDetailsFreshness.md)
 `providerStatuses` | [Array&lt;ProviderOperationStatus&gt;](ProviderOperationStatus.md)
 

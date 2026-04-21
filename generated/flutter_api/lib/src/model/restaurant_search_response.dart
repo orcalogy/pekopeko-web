@@ -3,12 +3,12 @@
 //
 
 // ignore_for_file: unused_element
-import 'package:pekopeko_api/src/model/restaurant_resource.dart';
 import 'package:pekopeko_api/src/model/restaurant_search_pagination.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:pekopeko_api/src/model/applied_restaurant_filters.dart';
 import 'package:pekopeko_api/src/model/geo_resolution.dart';
 import 'package:pekopeko_api/src/model/provider_operation_status.dart';
+import 'package:pekopeko_api/src/model/restaurant_search_item.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -42,7 +42,7 @@ abstract class RestaurantSearchResponse implements Built<RestaurantSearchRespons
   BuiltList<ProviderOperationStatus> get providerStatuses;
 
   @BuiltValueField(wireName: r'results')
-  BuiltList<RestaurantResource> get results;
+  BuiltList<RestaurantSearchItem> get results;
 
   @BuiltValueField(wireName: r'pagination')
   RestaurantSearchPagination get pagination;
@@ -98,7 +98,7 @@ class _$RestaurantSearchResponseSerializer implements PrimitiveSerializer<Restau
     yield r'results';
     yield serializers.serialize(
       object.results,
-      specifiedType: const FullType(BuiltList, [FullType(RestaurantResource)]),
+      specifiedType: const FullType(BuiltList, [FullType(RestaurantSearchItem)]),
     );
     yield r'pagination';
     yield serializers.serialize(
@@ -166,8 +166,8 @@ class _$RestaurantSearchResponseSerializer implements PrimitiveSerializer<Restau
         case r'results':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(BuiltList, [FullType(RestaurantResource)]),
-          ) as BuiltList<RestaurantResource>;
+            specifiedType: const FullType(BuiltList, [FullType(RestaurantSearchItem)]),
+          ) as BuiltList<RestaurantSearchItem>;
           result.results.replace(valueDes);
           break;
         case r'pagination':

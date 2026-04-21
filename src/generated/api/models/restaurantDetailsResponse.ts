@@ -13,6 +13,13 @@
  */
 
 import { mapValues } from '../runtime.ts';
+import type { RestaurantDetailsResource } from './restaurantDetailsResource.ts';
+import {
+    RestaurantDetailsResourceFromJSON,
+    RestaurantDetailsResourceFromJSONTyped,
+    RestaurantDetailsResourceToJSON,
+    RestaurantDetailsResourceToJSONTyped,
+} from './restaurantDetailsResource.ts';
 import type { ProviderOperationStatus } from './providerOperationStatus.ts';
 import {
     ProviderOperationStatusFromJSON,
@@ -27,13 +34,6 @@ import {
     RestaurantDetailsFreshnessToJSON,
     RestaurantDetailsFreshnessToJSONTyped,
 } from './restaurantDetailsFreshness.ts';
-import type { RestaurantResource } from './restaurantResource.ts';
-import {
-    RestaurantResourceFromJSON,
-    RestaurantResourceFromJSONTyped,
-    RestaurantResourceToJSON,
-    RestaurantResourceToJSONTyped,
-} from './restaurantResource.ts';
 
 /**
  * 
@@ -49,10 +49,10 @@ export interface RestaurantDetailsResponse {
     requestId: string;
     /**
      * 
-     * @type {RestaurantResource}
+     * @type {RestaurantDetailsResource}
      * @memberof RestaurantDetailsResponse
      */
-    restaurant: RestaurantResource;
+    restaurant: RestaurantDetailsResource;
     /**
      * 
      * @type {RestaurantDetailsFreshness}
@@ -89,7 +89,7 @@ export function RestaurantDetailsResponseFromJSONTyped(json: any, ignoreDiscrimi
     return {
         
         'requestId': json['requestId'],
-        'restaurant': RestaurantResourceFromJSON(json['restaurant']),
+        'restaurant': RestaurantDetailsResourceFromJSON(json['restaurant']),
         'freshness': RestaurantDetailsFreshnessFromJSON(json['freshness']),
         'providerStatuses': ((json['providerStatuses'] as Array<any>).map(ProviderOperationStatusFromJSON)),
     };
@@ -107,7 +107,7 @@ export function RestaurantDetailsResponseToJSONTyped(value?: RestaurantDetailsRe
     return {
         
         'requestId': value['requestId'],
-        'restaurant': RestaurantResourceToJSON(value['restaurant']),
+        'restaurant': RestaurantDetailsResourceToJSON(value['restaurant']),
         'freshness': RestaurantDetailsFreshnessToJSON(value['freshness']),
         'providerStatuses': ((value['providerStatuses'] as Array<any>).map(ProviderOperationStatusToJSON)),
     };

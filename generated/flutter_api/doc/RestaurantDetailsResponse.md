@@ -9,7 +9,7 @@ import 'package:pekopeko_api/api.dart';
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **requestId** | **String** |  | 
-**restaurant** | [**RestaurantResource**](RestaurantResource.md) |  | 
+**restaurant** | [**RestaurantDetailsResource**](RestaurantDetailsResource.md) |  | 
 **freshness** | [**RestaurantDetailsFreshness**](RestaurantDetailsFreshness.md) |  | 
 **providerStatuses** | [**BuiltList&lt;ProviderOperationStatus&gt;**](ProviderOperationStatus.md) |  | 
 

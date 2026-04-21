@@ -14,6 +14,7 @@ interface ApiRouteErrorOptions {
   code: ApiErrorCode;
   message: string;
   details?: Record<string, unknown>;
+  retryAfterSeconds?: number;
 }
 
 interface ResponseOptions {
@@ -21,19 +22,22 @@ interface ResponseOptions {
   cacheControl: string;
   status?: number;
   vary?: string[];
+  headers?: Record<string, string>;
 }
 
 export class ApiRouteError extends Error {
   readonly status: number;
   readonly code: ApiErrorCode;
   readonly details?: Record<string, unknown>;
+  readonly retryAfterSeconds?: number;
 
-  constructor({ status, code, message, details }: ApiRouteErrorOptions) {
+  constructor({ status, code, message, details, retryAfterSeconds }: ApiRouteErrorOptions) {
     super(message);
     this.name = 'ApiRouteError';
     this.status = status;
     this.code = code;
     this.details = details;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -96,6 +100,10 @@ export function errorResponse(error: unknown, requestId: string): NextResponse {
       status: handled.status,
       requestId,
       cacheControl: 'no-store',
+      headers:
+        handled.retryAfterSeconds == null
+          ? undefined
+          : { 'Retry-After': String(handled.retryAfterSeconds) },
     },
   );
 }
@@ -130,5 +138,11 @@ function applyResponseHeaders(response: NextResponse, options: ResponseOptions) 
 
   if (options.vary && options.vary.length > 0) {
     response.headers.set('Vary', [...new Set(options.vary)].join(', '));
+  }
+
+  if (options.headers) {
+    for (const [name, value] of Object.entries(options.headers)) {
+      response.headers.set(name, value);
+    }
   }
 }

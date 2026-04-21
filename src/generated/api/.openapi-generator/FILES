@@ -29,11 +29,12 @@ docs/ProviderOperationStatus.md
 docs/ProviderOperationStatusState.md
 docs/ProviderSource.md
 docs/RestaurantDetailsFreshness.md
+docs/RestaurantDetailsResource.md
 docs/RestaurantDetailsResponse.md
 docs/RestaurantFeature.md
 docs/RestaurantProviderRef.md
-docs/RestaurantResource.md
 docs/RestaurantSearchFilters.md
+docs/RestaurantSearchItem.md
 docs/RestaurantSearchPagination.md
 docs/RestaurantSearchPaginationRequest.md
 docs/RestaurantSearchQuery.md
@@ -74,11 +75,12 @@ models/providerOperationStatus.ts
 models/providerOperationStatusState.ts
 models/providerSource.ts
 models/restaurantDetailsFreshness.ts
+models/restaurantDetailsResource.ts
 models/restaurantDetailsResponse.ts
 models/restaurantFeature.ts
 models/restaurantProviderRef.ts
-models/restaurantResource.ts
 models/restaurantSearchFilters.ts
+models/restaurantSearchItem.ts
 models/restaurantSearchPagination.ts
 models/restaurantSearchPaginationRequest.ts
 models/restaurantSearchQuery.ts

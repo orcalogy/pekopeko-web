@@ -1,4 +1,4 @@
-# pekopeko_api.model.RestaurantResource
+# pekopeko_api.model.RestaurantSearchItem
 
 ## Load the model package
 ```dart
@@ -9,7 +9,6 @@ import 'package:pekopeko_api/api.dart';
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **restaurantKey** | **String** |  | 
-**id** | **String** |  | 
 **name** | **String** |  | 
 **address** | **String** |  | 
 **lat** | **double** |  | 

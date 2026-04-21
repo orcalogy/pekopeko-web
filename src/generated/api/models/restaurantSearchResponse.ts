@@ -41,13 +41,13 @@ import {
     RestaurantSearchPaginationToJSON,
     RestaurantSearchPaginationToJSONTyped,
 } from './restaurantSearchPagination.ts';
-import type { RestaurantResource } from './restaurantResource.ts';
+import type { RestaurantSearchItem } from './restaurantSearchItem.ts';
 import {
-    RestaurantResourceFromJSON,
-    RestaurantResourceFromJSONTyped,
-    RestaurantResourceToJSON,
-    RestaurantResourceToJSONTyped,
-} from './restaurantResource.ts';
+    RestaurantSearchItemFromJSON,
+    RestaurantSearchItemFromJSONTyped,
+    RestaurantSearchItemToJSON,
+    RestaurantSearchItemToJSONTyped,
+} from './restaurantSearchItem.ts';
 
 /**
  * 
@@ -87,10 +87,10 @@ export interface RestaurantSearchResponse {
     providerStatuses: Array<ProviderOperationStatus>;
     /**
      * 
-     * @type {Array<RestaurantResource>}
+     * @type {Array<RestaurantSearchItem>}
      * @memberof RestaurantSearchResponse
      */
-    results: Array<RestaurantResource>;
+    results: Array<RestaurantSearchItem>;
     /**
      * 
      * @type {RestaurantSearchPagination}
@@ -128,7 +128,7 @@ export function RestaurantSearchResponseFromJSONTyped(json: any, ignoreDiscrimin
         'appliedFilters': AppliedRestaurantFiltersFromJSON(json['appliedFilters']),
         'partialResults': json['partialResults'],
         'providerStatuses': ((json['providerStatuses'] as Array<any>).map(ProviderOperationStatusFromJSON)),
-        'results': ((json['results'] as Array<any>).map(RestaurantResourceFromJSON)),
+        'results': ((json['results'] as Array<any>).map(RestaurantSearchItemFromJSON)),
         'pagination': RestaurantSearchPaginationFromJSON(json['pagination']),
     };
 }
@@ -149,7 +149,7 @@ export function RestaurantSearchResponseToJSONTyped(value?: RestaurantSearchResp
         'appliedFilters': AppliedRestaurantFiltersToJSON(value['appliedFilters']),
         'partialResults': value['partialResults'],
         'providerStatuses': ((value['providerStatuses'] as Array<any>).map(ProviderOperationStatusToJSON)),
-        'results': ((value['results'] as Array<any>).map(RestaurantResourceToJSON)),
+        'results': ((value['results'] as Array<any>).map(RestaurantSearchItemToJSON)),
         'pagination': RestaurantSearchPaginationToJSON(value['pagination']),
     };
 }

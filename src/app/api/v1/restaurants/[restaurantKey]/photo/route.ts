@@ -5,7 +5,10 @@ import {
   getPhotoCacheControl,
   normalizePhotoWidth,
 } from '@/lib/api/photo';
-import { getStoredRestaurantRecord } from '@/lib/api/restaurant-registry';
+import {
+  assertStoredRestaurantRecordIsCurrent,
+  getStoredRestaurantRecord,
+} from '@/lib/api/restaurant-registry';
 
 export async function GET(
   request: Request,
@@ -17,7 +20,16 @@ export async function GET(
     const { restaurantKey } = await params;
     const record = await getStoredRestaurantRecord(restaurantKey);
 
-    if (!record?.photo) {
+    if (!record) {
+      throw new ApiRouteError({
+        status: 404,
+        code: 'not_found',
+        message: 'Photo not found',
+      });
+    }
+    assertStoredRestaurantRecordIsCurrent(record);
+
+    if (!record.photo) {
       throw new ApiRouteError({
         status: 404,
         code: 'not_found',

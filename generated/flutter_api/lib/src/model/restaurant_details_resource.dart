@@ -10,18 +10,16 @@ import 'package:pekopeko_api/src/model/restaurant_feature.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
-part 'restaurant_resource.g.dart';
+part 'restaurant_details_resource.g.dart';
 
-/// RestaurantResource
+/// RestaurantDetailsResource
 ///
 /// Properties:
 /// * [restaurantKey] 
-/// * [id] 
 /// * [name] 
 /// * [address] 
 /// * [lat] 
 /// * [lng] 
-/// * [distance] 
 /// * [rating] 
 /// * [priceLevel] 
 /// * [isOpenNow] 
@@ -41,12 +39,9 @@ part 'restaurant_resource.g.dart';
 /// * [source_] 
 /// * [providerRefs] 
 @BuiltValue()
-abstract class RestaurantResource implements Built<RestaurantResource, RestaurantResourceBuilder> {
+abstract class RestaurantDetailsResource implements Built<RestaurantDetailsResource, RestaurantDetailsResourceBuilder> {
   @BuiltValueField(wireName: r'restaurantKey')
   String get restaurantKey;
-
-  @BuiltValueField(wireName: r'id')
-  String get id;
 
   @BuiltValueField(wireName: r'name')
   String get name;
@@ -59,9 +54,6 @@ abstract class RestaurantResource implements Built<RestaurantResource, Restauran
 
   @BuiltValueField(wireName: r'lng')
   double get lng;
-
-  @BuiltValueField(wireName: r'distance')
-  int get distance;
 
   @BuiltValueField(wireName: r'rating')
   double? get rating;
@@ -118,37 +110,32 @@ abstract class RestaurantResource implements Built<RestaurantResource, Restauran
   @BuiltValueField(wireName: r'providerRefs')
   BuiltList<RestaurantProviderRef> get providerRefs;
 
-  RestaurantResource._();
+  RestaurantDetailsResource._();
 
-  factory RestaurantResource([void updates(RestaurantResourceBuilder b)]) = _$RestaurantResource;
+  factory RestaurantDetailsResource([void updates(RestaurantDetailsResourceBuilder b)]) = _$RestaurantDetailsResource;
 
   @BuiltValueHook(initializeBuilder: true)
-  static void _defaults(RestaurantResourceBuilder b) => b;
+  static void _defaults(RestaurantDetailsResourceBuilder b) => b;
 
   @BuiltValueSerializer(custom: true)
-  static Serializer<RestaurantResource> get serializer => _$RestaurantResourceSerializer();
+  static Serializer<RestaurantDetailsResource> get serializer => _$RestaurantDetailsResourceSerializer();
 }
 
-class _$RestaurantResourceSerializer implements PrimitiveSerializer<RestaurantResource> {
+class _$RestaurantDetailsResourceSerializer implements PrimitiveSerializer<RestaurantDetailsResource> {
   @override
-  final Iterable<Type> types = const [RestaurantResource, _$RestaurantResource];
+  final Iterable<Type> types = const [RestaurantDetailsResource, _$RestaurantDetailsResource];
 
   @override
-  final String wireName = r'RestaurantResource';
+  final String wireName = r'RestaurantDetailsResource';
 
   Iterable<Object?> _serializeProperties(
     Serializers serializers,
-    RestaurantResource object, {
+    RestaurantDetailsResource object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
     yield r'restaurantKey';
     yield serializers.serialize(
       object.restaurantKey,
-      specifiedType: const FullType(String),
-    );
-    yield r'id';
-    yield serializers.serialize(
-      object.id,
       specifiedType: const FullType(String),
     );
     yield r'name';
@@ -170,11 +157,6 @@ class _$RestaurantResourceSerializer implements PrimitiveSerializer<RestaurantRe
     yield serializers.serialize(
       object.lng,
       specifiedType: const FullType(double),
-    );
-    yield r'distance';
-    yield serializers.serialize(
-      object.distance,
-      specifiedType: const FullType(int),
     );
     if (object.rating != null) {
       yield r'rating';
@@ -303,7 +285,7 @@ class _$RestaurantResourceSerializer implements PrimitiveSerializer<RestaurantRe
   @override
   Object serialize(
     Serializers serializers,
-    RestaurantResource object, {
+    RestaurantDetailsResource object, {
     FullType specifiedType = FullType.unspecified,
   }) {
     return _serializeProperties(serializers, object, specifiedType: specifiedType).toList();
@@ -314,7 +296,7 @@ class _$RestaurantResourceSerializer implements PrimitiveSerializer<RestaurantRe
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
     required List<Object?> serializedList,
-    required RestaurantResourceBuilder result,
+    required RestaurantDetailsResourceBuilder result,
     required List<Object?> unhandled,
   }) {
     for (var i = 0; i < serializedList.length; i += 2) {
@@ -327,13 +309,6 @@ class _$RestaurantResourceSerializer implements PrimitiveSerializer<RestaurantRe
             specifiedType: const FullType(String),
           ) as String;
           result.restaurantKey = valueDes;
-          break;
-        case r'id':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(String),
-          ) as String;
-          result.id = valueDes;
           break;
         case r'name':
           final valueDes = serializers.deserialize(
@@ -362,13 +337,6 @@ class _$RestaurantResourceSerializer implements PrimitiveSerializer<RestaurantRe
             specifiedType: const FullType(double),
           ) as double;
           result.lng = valueDes;
-          break;
-        case r'distance':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(int),
-          ) as int;
-          result.distance = valueDes;
           break;
         case r'rating':
           final valueDes = serializers.deserialize(
@@ -505,12 +473,12 @@ class _$RestaurantResourceSerializer implements PrimitiveSerializer<RestaurantRe
   }
 
   @override
-  RestaurantResource deserialize(
+  RestaurantDetailsResource deserialize(
     Serializers serializers,
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
   }) {
-    final result = RestaurantResourceBuilder();
+    final result = RestaurantDetailsResourceBuilder();
     final serializedList = (serialized as Iterable<Object?>).toList();
     final unhandled = <Object?>[];
     _deserializeProperties(

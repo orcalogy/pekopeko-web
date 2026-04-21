@@ -4,9 +4,9 @@
 
 // ignore_for_file: unused_element
 import 'package:pekopeko_api/src/model/restaurant_details_freshness.dart';
-import 'package:pekopeko_api/src/model/restaurant_resource.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:pekopeko_api/src/model/provider_operation_status.dart';
+import 'package:pekopeko_api/src/model/restaurant_details_resource.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -25,7 +25,7 @@ abstract class RestaurantDetailsResponse implements Built<RestaurantDetailsRespo
   String get requestId;
 
   @BuiltValueField(wireName: r'restaurant')
-  RestaurantResource get restaurant;
+  RestaurantDetailsResource get restaurant;
 
   @BuiltValueField(wireName: r'freshness')
   RestaurantDetailsFreshness get freshness;
@@ -64,7 +64,7 @@ class _$RestaurantDetailsResponseSerializer implements PrimitiveSerializer<Resta
     yield r'restaurant';
     yield serializers.serialize(
       object.restaurant,
-      specifiedType: const FullType(RestaurantResource),
+      specifiedType: const FullType(RestaurantDetailsResource),
     );
     yield r'freshness';
     yield serializers.serialize(
@@ -109,8 +109,8 @@ class _$RestaurantDetailsResponseSerializer implements PrimitiveSerializer<Resta
         case r'restaurant':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(RestaurantResource),
-          ) as RestaurantResource;
+            specifiedType: const FullType(RestaurantDetailsResource),
+          ) as RestaurantDetailsResource;
           result.restaurant.replace(valueDes);
           break;
         case r'freshness':

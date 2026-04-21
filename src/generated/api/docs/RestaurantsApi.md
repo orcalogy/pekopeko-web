@@ -74,9 +74,10 @@ No authorization required
 | Status code | Description | Response headers |
 |-------------|-------------|------------------|
 | **200** | Restaurant details |  * X-Request-Id -  <br>  |
-| **404** | Resource not found |  -  |
-| **503** | Required upstream provider is unavailable |  -  |
-| **0** | Internal server error |  -  |
+| **404** | Resource not found |  * X-Request-Id -  <br>  |
+| **429** | Request was rate limited or upstream quota was exhausted |  * X-Request-Id -  <br>  * Retry-After -  <br>  |
+| **503** | Required upstream provider is unavailable |  * X-Request-Id -  <br>  |
+| **0** | Internal server error |  * X-Request-Id -  <br>  |
 
 [[Back to top]](#) [[Back to API list]](../README.md#api-endpoints) [[Back to Model list]](../README.md#models) [[Back to README]](../README.md)
 
@@ -144,9 +145,12 @@ No authorization required
 ### HTTP response details
 | Status code | Description | Response headers |
 |-------------|-------------|------------------|
-| **200** | Image bytes |  * X-Request-Id -  <br>  |
-| **404** | Resource not found |  -  |
-| **0** | Internal server error |  -  |
+| **200** | Image bytes |  * X-Request-Id -  <br>  * Cache-Control -  <br>  * Content-Type -  <br>  |
+| **404** | Resource not found |  * X-Request-Id -  <br>  |
+| **429** | Request was rate limited or upstream quota was exhausted |  * X-Request-Id -  <br>  * Retry-After -  <br>  |
+| **502** | Upstream provider failure |  * X-Request-Id -  <br>  |
+| **503** | Required upstream provider is unavailable |  * X-Request-Id -  <br>  |
+| **0** | Internal server error |  * X-Request-Id -  <br>  |
 
 [[Back to top]](#) [[Back to API list]](../README.md#api-endpoints) [[Back to Model list]](../README.md#models) [[Back to README]](../README.md)
 
@@ -212,10 +216,11 @@ No authorization required
 | Status code | Description | Response headers |
 |-------------|-------------|------------------|
 | **200** | Search results |  * X-Request-Id -  <br>  |
-| **400** | Invalid request |  -  |
-| **502** | Upstream provider failure |  -  |
-| **503** | Required upstream provider is unavailable |  -  |
-| **0** | Internal server error |  -  |
+| **400** | Invalid request |  * X-Request-Id -  <br>  |
+| **429** | Request was rate limited or upstream quota was exhausted |  * X-Request-Id -  <br>  * Retry-After -  <br>  |
+| **502** | Upstream provider failure |  * X-Request-Id -  <br>  |
+| **503** | Required upstream provider is unavailable |  * X-Request-Id -  <br>  |
+| **0** | Internal server error |  * X-Request-Id -  <br>  |
 
 [[Back to top]](#) [[Back to API list]](../README.md#api-endpoints) [[Back to Model list]](../README.md#models) [[Back to README]](../README.md)
 

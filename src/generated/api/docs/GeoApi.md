@@ -69,9 +69,9 @@ No authorization required
 | Status code | Description | Response headers |
 |-------------|-------------|------------------|
 | **200** | Geo resolution |  * X-Request-Id -  <br>  |
-| **400** | Invalid request |  -  |
-| **503** | Required upstream provider is unavailable |  -  |
-| **0** | Internal server error |  -  |
+| **400** | Invalid request |  * X-Request-Id -  <br>  |
+| **503** | Required upstream provider is unavailable |  * X-Request-Id -  <br>  |
+| **0** | Internal server error |  * X-Request-Id -  <br>  |
 
 [[Back to top]](#) [[Back to API list]](../README.md#api-endpoints) [[Back to Model list]](../README.md#models) [[Back to README]](../README.md)
 

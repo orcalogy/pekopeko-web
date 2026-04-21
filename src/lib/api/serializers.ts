@@ -15,9 +15,10 @@ import type { ProviderMode } from '../../generated/api/models/providerMode.ts';
 import type { ProviderOperationStatus } from '../../generated/api/models/providerOperationStatus.ts';
 import type { ProviderOperationStatusState } from '../../generated/api/models/providerOperationStatusState.ts';
 import type { ProviderSource } from '../../generated/api/models/providerSource.ts';
+import type { RestaurantDetailsResource } from '../../generated/api/models/restaurantDetailsResource.ts';
 import type { RestaurantDetailsResponse } from '../../generated/api/models/restaurantDetailsResponse.ts';
 import type { RestaurantFeature as ContractRestaurantFeature } from '../../generated/api/models/restaurantFeature.ts';
-import type { RestaurantResource } from '../../generated/api/models/restaurantResource.ts';
+import type { RestaurantSearchItem } from '../../generated/api/models/restaurantSearchItem.ts';
 import type { RestaurantSearchResponse } from '../../generated/api/models/restaurantSearchResponse.ts';
 import type { RestaurantSortBy } from '../../generated/api/models/restaurantSortBy.ts';
 import type { SortDirection } from '../../generated/api/models/sortDirection.ts';
@@ -114,7 +115,7 @@ export function serializeRestaurantSearchResponse(
     },
     partialResults: result.partialResults,
     providerStatuses: result.providerStatuses.map(serializeProviderExecutionStatus),
-    results: result.results.map(serializeRestaurantResource),
+    results: result.results.map(serializeRestaurantSearchItem),
     pagination: {
       pageSize: result.pagination.pageSize,
       offset: result.pagination.offset,
@@ -133,7 +134,7 @@ export function serializeRestaurantDetailsResponse(
 ): unknown {
   const payload: RestaurantDetailsResponse = {
     requestId,
-    restaurant: serializeRestaurantResource(result.restaurant),
+    restaurant: serializeRestaurantDetailsResource(result.restaurant),
     freshness: {
       state: result.freshness.state as unknown as DetailFreshnessState,
     },
@@ -143,15 +144,26 @@ export function serializeRestaurantDetailsResponse(
   return payload;
 }
 
-function serializeRestaurantResource(record: ApiRestaurantRecord): RestaurantResource {
+function serializeRestaurantSearchItem(record: ApiRestaurantRecord): RestaurantSearchItem {
+  return {
+    ...serializeRestaurantCore(record),
+    distance: Math.round(record.distance),
+  };
+}
+
+function serializeRestaurantDetailsResource(
+  record: ApiRestaurantRecord,
+): RestaurantDetailsResource {
+  return serializeRestaurantCore(record);
+}
+
+function serializeRestaurantCore(record: ApiRestaurantRecord): RestaurantDetailsResource {
   return {
     restaurantKey: record.restaurantKey,
-    id: record.id,
     name: record.name,
     address: record.address,
     lat: record.lat,
     lng: record.lng,
-    distance: Math.round(record.distance),
     rating: record.rating,
     priceLevel: record.priceLevel,
     isOpenNow: record.isOpenNow,

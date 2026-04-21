@@ -28,6 +28,7 @@ import {
   restoreRestaurantFromSnapshot,
 } from './restaurant-key';
 import {
+  assertStoredRestaurantRecordIsCurrent,
   getStoredRestaurantRecord,
   resolveRestaurantIdentity,
   type StoredRestaurantRecord,
@@ -160,6 +161,7 @@ export async function getRestaurantDetails(params: {
       message: 'Restaurant not found',
     });
   }
+  assertStoredRestaurantRecordIsCurrent(storedRecord);
 
   const locale = resolveRequestLocale(params.locale, params.acceptLanguage);
   const snapshot = storedRecord.snapshot
@@ -757,16 +759,13 @@ function normalizeProviderSearchError(provider: MapProviderType, error: unknown)
     return error;
   }
 
-  const message = error instanceof Error ? error.message : String(error);
-  const normalizedMessage = message.toLowerCase();
-
-  if (normalizedMessage.includes('status 429')) {
-    return new ApiRouteError({
-      status: 429,
-      code: 'rate_limited',
-      message: `${provider} search request was rate limited`,
-      details: { provider },
-    });
+  const capacityError = normalizeCapacityError({
+    provider,
+    action: 'search',
+    error,
+  });
+  if (capacityError) {
+    return capacityError;
   }
 
   return new ApiRouteError({
@@ -794,13 +793,13 @@ function normalizeProviderDetailError(provider: MapProviderType, error: unknown)
     });
   }
 
-  if (normalizedMessage.includes('status 429')) {
-    return new ApiRouteError({
-      status: 429,
-      code: 'rate_limited',
-      message: `${provider} details request was rate limited`,
-      details: { provider },
-    });
+  const capacityError = normalizeCapacityError({
+    provider,
+    action: 'details',
+    error,
+  });
+  if (capacityError) {
+    return capacityError;
   }
 
   return new ApiRouteError({
@@ -880,4 +879,39 @@ function dedupeProviderRefs(providerRefs: ApiProviderRef[]): ApiProviderRef[] {
     seen.add(key);
     return true;
   });
+}
+
+function normalizeCapacityError(params: {
+  provider: MapProviderType;
+  action: 'search' | 'details';
+  error: unknown;
+}): ApiRouteError | null {
+  const message = params.error instanceof Error ? params.error.message : String(params.error);
+  const normalizedMessage = message.toLowerCase();
+
+  if (
+    normalizedMessage.includes('over_query_limit') ||
+    normalizedMessage.includes('resource_exhausted') ||
+    normalizedMessage.includes('quota') ||
+    normalizedMessage.includes('daily limit') ||
+    normalizedMessage.includes('usage limit')
+  ) {
+    return new ApiRouteError({
+      status: 429,
+      code: 'quota_exhausted',
+      message: `${params.provider} ${params.action} quota was exhausted`,
+      details: { provider: params.provider },
+    });
+  }
+
+  if (normalizedMessage.includes('status 429')) {
+    return new ApiRouteError({
+      status: 429,
+      code: 'rate_limited',
+      message: `${params.provider} ${params.action} request was rate limited`,
+      details: { provider: params.provider },
+    });
+  }
+
+  return null;
 }

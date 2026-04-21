@@ -38,157 +38,151 @@ import {
 /**
  * 
  * @export
- * @interface RestaurantResource
+ * @interface RestaurantSearchItem
  */
-export interface RestaurantResource {
+export interface RestaurantSearchItem {
     /**
      * 
      * @type {string}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     restaurantKey: string;
     /**
      * 
      * @type {string}
-     * @memberof RestaurantResource
-     */
-    id: string;
-    /**
-     * 
-     * @type {string}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     name: string;
     /**
      * 
      * @type {string}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     address: string;
     /**
      * 
      * @type {number}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     lat: number;
     /**
      * 
      * @type {number}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     lng: number;
     /**
      * 
      * @type {number}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     distance: number;
     /**
      * 
      * @type {number}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     rating?: number;
     /**
      * 
      * @type {number}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     priceLevel?: number;
     /**
      * 
      * @type {boolean}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     isOpenNow?: boolean;
     /**
      * 
      * @type {Array<string>}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     openingHours?: Array<string>;
     /**
      * 
      * @type {string}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     cuisineType?: string;
     /**
      * 
      * @type {string}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     photoUrl?: string;
     /**
      * 
      * @type {string}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     phone?: string;
     /**
      * 
      * @type {string}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     placeUrl?: string;
     /**
      * 
      * @type {string}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     detailUrl?: string;
     /**
      * 
      * @type {string}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     couponUrl?: string;
     /**
      * 
      * @type {string}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     accessInfo?: string;
     /**
      * 
      * @type {string}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     budgetText?: string;
     /**
      * 
      * @type {number}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     capacity?: number;
     /**
      * 
      * @type {Array<RestaurantFeature>}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     features?: Array<RestaurantFeature>;
     /**
      * 
      * @type {string}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     menuUrl?: string;
     /**
      * 
      * @type {string}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     websiteUrl?: string;
     /**
      * 
      * @type {ProviderSource}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     source: ProviderSource;
     /**
      * 
      * @type {Array<RestaurantProviderRef>}
-     * @memberof RestaurantResource
+     * @memberof RestaurantSearchItem
      */
     providerRefs: Array<RestaurantProviderRef>;
 }
@@ -196,11 +190,10 @@ export interface RestaurantResource {
 
 
 /**
- * Check if a given object implements the RestaurantResource interface.
+ * Check if a given object implements the RestaurantSearchItem interface.
  */
-export function instanceOfRestaurantResource(value: object): value is RestaurantResource {
+export function instanceOfRestaurantSearchItem(value: object): value is RestaurantSearchItem {
     if (!('restaurantKey' in value) || value['restaurantKey'] === undefined) return false;
-    if (!('id' in value) || value['id'] === undefined) return false;
     if (!('name' in value) || value['name'] === undefined) return false;
     if (!('address' in value) || value['address'] === undefined) return false;
     if (!('lat' in value) || value['lat'] === undefined) return false;
@@ -211,18 +204,17 @@ export function instanceOfRestaurantResource(value: object): value is Restaurant
     return true;
 }
 
-export function RestaurantResourceFromJSON(json: any): RestaurantResource {
-    return RestaurantResourceFromJSONTyped(json, false);
+export function RestaurantSearchItemFromJSON(json: any): RestaurantSearchItem {
+    return RestaurantSearchItemFromJSONTyped(json, false);
 }
 
-export function RestaurantResourceFromJSONTyped(json: any, ignoreDiscriminator: boolean): RestaurantResource {
+export function RestaurantSearchItemFromJSONTyped(json: any, ignoreDiscriminator: boolean): RestaurantSearchItem {
     if (json == null) {
         return json;
     }
     return {
         
         'restaurantKey': json['restaurantKey'],
-        'id': json['id'],
         'name': json['name'],
         'address': json['address'],
         'lat': json['lat'],
@@ -249,11 +241,11 @@ export function RestaurantResourceFromJSONTyped(json: any, ignoreDiscriminator: 
     };
 }
 
-export function RestaurantResourceToJSON(json: any): RestaurantResource {
-    return RestaurantResourceToJSONTyped(json, false);
+export function RestaurantSearchItemToJSON(json: any): RestaurantSearchItem {
+    return RestaurantSearchItemToJSONTyped(json, false);
 }
 
-export function RestaurantResourceToJSONTyped(value?: RestaurantResource | null, ignoreDiscriminator: boolean = false): any {
+export function RestaurantSearchItemToJSONTyped(value?: RestaurantSearchItem | null, ignoreDiscriminator: boolean = false): any {
     if (value == null) {
         return value;
     }
@@ -261,7 +253,6 @@ export function RestaurantResourceToJSONTyped(value?: RestaurantResource | null,
     return {
         
         'restaurantKey': value['restaurantKey'],
-        'id': value['id'],
         'name': value['name'],
         'address': value['address'],
         'lat': value['lat'],

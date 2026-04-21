@@ -20,15 +20,26 @@ import type {
   RestaurantPhotoPayload,
 } from './types';
 
-const ACTIVE_ALIAS_INCLUDE = {
+const RESTAURANT_RECORD_INCLUDE = {
   aliases: {
     where: { status: RestaurantAliasStatus.ACTIVE },
-    orderBy: { id: 'asc' as const },
+    orderBy: { createdAt: 'asc' as const },
+  },
+  supersededBy: {
+    select: {
+      restaurantKey: true,
+    },
   },
 } satisfies Prisma.RestaurantRecordInclude;
 
+const SUPERSESSION_LOOKUP_SELECT = {
+  restaurantKey: true,
+  status: true,
+  supersededById: true,
+} satisfies Prisma.RestaurantRecordSelect;
+
 type RestaurantRecordWithAliases = Prisma.RestaurantRecordGetPayload<{
-  include: typeof ACTIVE_ALIAS_INCLUDE;
+  include: typeof RESTAURANT_RECORD_INCLUDE;
 }>;
 
 interface RestaurantObservation {
@@ -50,11 +61,13 @@ interface RestaurantObservation {
 }
 
 export interface StoredRestaurantRecord {
+  status: 'ACTIVE' | 'CLOSED' | 'SUPERSEDED';
   restaurantKey: string;
   source: ApiSource;
   providerRefs: ApiProviderRef[];
   snapshot?: RestaurantKeySnapshot;
   photo?: RestaurantPhotoPayload;
+  supersededByRestaurantKey?: string;
 }
 
 export interface ResolvedRestaurantIdentity {
@@ -91,10 +104,57 @@ export async function getStoredRestaurantRecord(
 ): Promise<StoredRestaurantRecord | null> {
   const record = await prisma.restaurantRecord.findUnique({
     where: { restaurantKey },
-    include: ACTIVE_ALIAS_INCLUDE,
+    include: RESTAURANT_RECORD_INCLUDE,
   });
 
-  return record ? toStoredRestaurantRecord(record) : null;
+  if (!record) {
+    return null;
+  }
+
+  const storedRecord = toStoredRestaurantRecord(record);
+  if (
+    storedRecord.status === 'SUPERSEDED' &&
+    storedRecord.supersededByRestaurantKey &&
+    storedRecord.supersededByRestaurantKey !== restaurantKey
+  ) {
+    storedRecord.supersededByRestaurantKey =
+      (await resolveSupersessionTargetRestaurantKey(storedRecord.supersededByRestaurantKey)) ??
+      storedRecord.supersededByRestaurantKey;
+  }
+
+  return storedRecord;
+}
+
+export function assertStoredRestaurantRecordIsCurrent(
+  record: StoredRestaurantRecord,
+): StoredRestaurantRecord {
+  if (record.status === 'SUPERSEDED') {
+    throw new ApiRouteError({
+      status: 404,
+      code: 'not_found',
+      message: 'Restaurant has moved',
+      details: {
+        restaurantKey: record.restaurantKey,
+        ...(record.supersededByRestaurantKey
+          ? { movedToRestaurantKey: record.supersededByRestaurantKey }
+          : {}),
+      },
+    });
+  }
+
+  if (record.status === 'CLOSED') {
+    throw new ApiRouteError({
+      status: 404,
+      code: 'not_found',
+      message: 'Restaurant is closed',
+      details: {
+        restaurantKey: record.restaurantKey,
+        status: 'closed',
+      },
+    });
+  }
+
+  return record;
 }
 
 async function upsertRestaurantObservation(
@@ -111,7 +171,7 @@ async function upsertRestaurantObservation(
       },
       include: {
         restaurant: {
-          include: ACTIVE_ALIAS_INCLUDE,
+          include: RESTAURANT_RECORD_INCLUDE,
         },
       },
     });
@@ -139,7 +199,7 @@ async function findCandidateRestaurant(
           status: RestaurantRecordStatus.ACTIVE,
           normalizedPhone: observation.normalizedPhone,
         },
-        include: ACTIVE_ALIAS_INCLUDE,
+        include: RESTAURANT_RECORD_INCLUDE,
         orderBy: { lastSeenAt: 'desc' },
       })
     : null;
@@ -155,7 +215,7 @@ async function findCandidateRestaurant(
                 status: RestaurantRecordStatus.ACTIVE,
                 normalizedWebsiteHost: observation.normalizedWebsiteHost,
               },
-              include: ACTIVE_ALIAS_INCLUDE,
+              include: RESTAURANT_RECORD_INCLUDE,
               take: 12,
               orderBy: { lastSeenAt: 'desc' },
             })
@@ -177,7 +237,7 @@ async function findCandidateRestaurant(
             status: RestaurantRecordStatus.ACTIVE,
             normalizedCanonicalName: observation.normalizedCanonicalName,
           },
-          include: ACTIVE_ALIAS_INCLUDE,
+          include: RESTAURANT_RECORD_INCLUDE,
           take: 12,
           orderBy: { lastSeenAt: 'desc' },
         });
@@ -232,7 +292,7 @@ async function updateRestaurantRecord(
       lastPhotoPayloadJson: toNullableJsonValue(observation.photo),
       lastSeenAt: new Date(),
     },
-    include: ACTIVE_ALIAS_INCLUDE,
+    include: RESTAURANT_RECORD_INCLUDE,
   });
 }
 
@@ -278,13 +338,13 @@ async function createRestaurantRecord(
         })),
       },
     },
-    include: ACTIVE_ALIAS_INCLUDE,
+    include: RESTAURANT_RECORD_INCLUDE,
   });
 }
 
 async function upsertAliases(
   tx: Prisma.TransactionClient,
-  restaurantId: bigint,
+  restaurantId: string,
   observation: RestaurantObservation,
 ) {
   const now = new Date();
@@ -357,7 +417,13 @@ function buildObservation(
 }
 
 function toStoredRestaurantRecord(record: RestaurantRecordWithAliases): StoredRestaurantRecord {
+  const supersededByRestaurantKey =
+    record.status === RestaurantRecordStatus.SUPERSEDED && record.supersededBy?.restaurantKey
+      ? record.supersededBy.restaurantKey
+      : undefined;
+
   return {
+    status: record.status,
     restaurantKey: record.restaurantKey,
     providerRefs: record.aliases.map((alias) => ({
       provider: alias.provider as MapProviderType,
@@ -366,6 +432,7 @@ function toStoredRestaurantRecord(record: RestaurantRecordWithAliases): StoredRe
     source: coerceApiSource(record.lastObservedSource),
     snapshot: parseStoredSnapshot(record.lastSnapshotJson),
     photo: parseStoredPhotoPayload(record.lastPhotoPayloadJson),
+    supersededByRestaurantKey,
   };
 }
 
@@ -419,7 +486,79 @@ function toNullableJsonValue(
 }
 
 function parseStoredSnapshot(value: Prisma.JsonValue | null): RestaurantKeySnapshot | undefined {
-  return isPlainObject(value) ? (value as RestaurantKeySnapshot) : undefined;
+  if (!isPlainObject(value)) {
+    return undefined;
+  }
+
+  const id = readString(value.id);
+  const name = readString(value.name);
+  const address = readString(value.address);
+  const lat = readFiniteNumber(value.lat);
+  const lng = readFiniteNumber(value.lng);
+  const distance = readFiniteNumber(value.distance);
+
+  if (!id || !name || !address || lat == null || lng == null || distance == null) {
+    return undefined;
+  }
+
+  const snapshot: RestaurantKeySnapshot = {
+    id,
+    name,
+    address,
+    lat,
+    lng,
+    distance,
+  };
+
+  const rating = readFiniteNumber(value.rating);
+  if (rating != null) snapshot.rating = rating;
+
+  const priceLevel = readFiniteNumber(value.priceLevel);
+  if (priceLevel != null) snapshot.priceLevel = priceLevel;
+
+  const isOpenNow = readBoolean(value.isOpenNow);
+  if (isOpenNow != null) snapshot.isOpenNow = isOpenNow;
+
+  const openingHours = readStringArray(value.openingHours);
+  if (openingHours) snapshot.openingHours = openingHours;
+
+  const cuisineType = readString(value.cuisineType);
+  if (cuisineType) snapshot.cuisineType = cuisineType;
+
+  const phone = readString(value.phone);
+  if (phone) snapshot.phone = phone;
+
+  const placeUrl = readString(value.placeUrl);
+  if (placeUrl) snapshot.placeUrl = placeUrl;
+
+  const detailUrl = readString(value.detailUrl);
+  if (detailUrl) snapshot.detailUrl = detailUrl;
+
+  const couponUrl = readString(value.couponUrl);
+  if (couponUrl) snapshot.couponUrl = couponUrl;
+
+  const accessInfo = readString(value.accessInfo);
+  if (accessInfo) snapshot.accessInfo = accessInfo;
+
+  const budgetText = readString(value.budgetText);
+  if (budgetText) snapshot.budgetText = budgetText;
+
+  const capacity = readFiniteNumber(value.capacity);
+  if (capacity != null) snapshot.capacity = capacity;
+
+  const features = readStringArray(value.features);
+  if (features) snapshot.features = features;
+
+  const menuUrl = readString(value.menuUrl);
+  if (menuUrl) snapshot.menuUrl = menuUrl;
+
+  const websiteUrl = readString(value.websiteUrl);
+  if (websiteUrl) snapshot.websiteUrl = websiteUrl;
+
+  const source = readApiSource(value.source);
+  if (source) snapshot.source = source;
+
+  return snapshot;
 }
 
 function parseStoredPhotoPayload(
@@ -433,13 +572,84 @@ function parseStoredPhotoPayload(
     return undefined;
   }
 
+  const ref = readString(value.ref);
+  const url = readString(value.url);
+  if (!ref && !url) {
+    return undefined;
+  }
+
   return {
     provider: value.provider,
-    ...(typeof value.ref === 'string' ? { ref: value.ref } : {}),
-    ...(typeof value.url === 'string' ? { url: value.url } : {}),
+    ...(ref ? { ref } : {}),
+    ...(url ? { url } : {}),
   };
 }
 
 function isPlainObject(value: Prisma.JsonValue | null): value is Prisma.JsonObject {
   return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function readString(value: Prisma.JsonValue | undefined): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function readFiniteNumber(value: Prisma.JsonValue | undefined): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function readBoolean(value: Prisma.JsonValue | undefined): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function readStringArray(value: Prisma.JsonValue | undefined): string[] | undefined {
+  if (!Array.isArray(value) || !value.every((entry) => typeof entry === 'string')) {
+    return undefined;
+  }
+
+  return value;
+}
+
+function readApiSource(value: Prisma.JsonValue | undefined): ApiSource | undefined {
+  return value === 'google' || value === 'hotpepper' || value === 'amap' || value === 'hybrid'
+    ? value
+    : undefined;
+}
+
+export async function resolveSupersessionTargetRestaurantKey(
+  restaurantKey: string,
+): Promise<string | undefined> {
+  const seen = new Set<string>();
+  let currentKey: string | undefined = restaurantKey;
+
+  while (currentKey && !seen.has(currentKey)) {
+    seen.add(currentKey);
+
+    const record = (await prisma.restaurantRecord.findUnique({
+      where: { restaurantKey: currentKey },
+      select: SUPERSESSION_LOOKUP_SELECT,
+    })) as {
+      restaurantKey: string;
+      status: RestaurantRecordStatus;
+      supersededById: string | null;
+    } | null;
+
+    if (!record) {
+      return currentKey;
+    }
+
+    if (record.status !== RestaurantRecordStatus.SUPERSEDED || !record.supersededById) {
+      return record.restaurantKey;
+    }
+
+    const nextRecord = (await prisma.restaurantRecord.findUnique({
+      where: { id: record.supersededById },
+      select: {
+        restaurantKey: true,
+      },
+    })) as { restaurantKey: string } | null;
+
+    currentKey = nextRecord?.restaurantKey;
+  }
+
+  return undefined;
 }

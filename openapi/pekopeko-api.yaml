@@ -88,6 +88,8 @@ paths:
                 $ref: '#/components/schemas/RestaurantSearchResponse'
         '400':
           $ref: '#/components/responses/InvalidArgument'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '502':
           $ref: '#/components/responses/UpstreamError'
         '503':
@@ -114,6 +116,8 @@ paths:
                 $ref: '#/components/schemas/RestaurantDetailsResponse'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
         '503':
           $ref: '#/components/responses/ProviderUnavailable'
         default:
@@ -139,6 +143,10 @@ paths:
           headers:
             X-Request-Id:
               $ref: '#/components/headers/XRequestId'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            Content-Type:
+              $ref: '#/components/headers/ContentType'
           content:
             image/*:
               schema:
@@ -146,6 +154,12 @@ paths:
                 format: binary
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '503':
+          $ref: '#/components/responses/ProviderUnavailable'
         default:
           $ref: '#/components/responses/InternalError'
 components:
@@ -155,6 +169,19 @@ components:
       schema:
         type: string
         format: uuid
+    RetryAfter:
+      description: Seconds until the client should retry the request.
+      schema:
+        type: integer
+        minimum: 0
+    CacheControl:
+      description: Applied HTTP cache policy.
+      schema:
+        type: string
+    ContentType:
+      description: Actual proxied media type for the image response.
+      schema:
+        type: string
   parameters:
     RestaurantKey:
       name: restaurantKey
@@ -172,30 +199,56 @@ components:
   responses:
     InvalidArgument:
       description: Invalid request
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ApiErrorResponse'
     NotFound:
       description: Resource not found
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiErrorResponse'
+    RateLimited:
+      description: Request was rate limited or upstream quota was exhausted
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ApiErrorResponse'
     ProviderUnavailable:
       description: Required upstream provider is unavailable
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ApiErrorResponse'
     UpstreamError:
       description: Upstream provider failure
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ApiErrorResponse'
     InternalError:
       description: Internal server error
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
       content:
         application/json:
           schema:
@@ -456,12 +509,11 @@ components:
           $ref: '#/components/schemas/ProviderKind'
         providerId:
           type: string
-    RestaurantResource:
+    RestaurantSearchItem:
       type: object
       additionalProperties: false
       required:
         - restaurantKey
-        - id
         - name
         - address
         - lat
@@ -471,8 +523,6 @@ components:
         - providerRefs
       properties:
         restaurantKey:
-          type: string
-        id:
           type: string
         name:
           type: string
@@ -486,6 +536,75 @@ components:
           format: double
         distance:
           type: integer
+        rating:
+          type: number
+          format: double
+        priceLevel:
+          type: integer
+          minimum: 0
+          maximum: 4
+        isOpenNow:
+          type: boolean
+        openingHours:
+          type: array
+          items:
+            type: string
+        cuisineType:
+          type: string
+        photoUrl:
+          type: string
+        phone:
+          type: string
+        placeUrl:
+          type: string
+        detailUrl:
+          type: string
+        couponUrl:
+          type: string
+        accessInfo:
+          type: string
+        budgetText:
+          type: string
+        capacity:
+          type: integer
+        features:
+          type: array
+          items:
+            $ref: '#/components/schemas/RestaurantFeature'
+        menuUrl:
+          type: string
+        websiteUrl:
+          type: string
+        source:
+          $ref: '#/components/schemas/ProviderSource'
+        providerRefs:
+          type: array
+          items:
+            $ref: '#/components/schemas/RestaurantProviderRef'
+    RestaurantDetailsResource:
+      type: object
+      additionalProperties: false
+      required:
+        - restaurantKey
+        - name
+        - address
+        - lat
+        - lng
+        - source
+        - providerRefs
+      properties:
+        restaurantKey:
+          type: string
+        name:
+          type: string
+        address:
+          type: string
+        lat:
+          type: number
+          format: double
+        lng:
+          type: number
+          format: double
         rating:
           type: number
           format: double
@@ -705,7 +824,7 @@ components:
         results:
           type: array
           items:
-            $ref: '#/components/schemas/RestaurantResource'
+            $ref: '#/components/schemas/RestaurantSearchItem'
         pagination:
           $ref: '#/components/schemas/RestaurantSearchPagination'
     RestaurantDetailsFreshness:
@@ -724,7 +843,7 @@ components:
           type: string
           format: uuid
         restaurant:
-          $ref: '#/components/schemas/RestaurantResource'
+          $ref: '#/components/schemas/RestaurantDetailsResource'
         freshness:
           $ref: '#/components/schemas/RestaurantDetailsFreshness'
         providerStatuses:

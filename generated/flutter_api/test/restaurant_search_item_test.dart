@@ -1,19 +1,14 @@
 import 'package:test/test.dart';
 import 'package:pekopeko_api/pekopeko_api.dart';
 
-// tests for RestaurantResource
+// tests for RestaurantSearchItem
 void main() {
-  final instance = RestaurantResourceBuilder();
+  final instance = RestaurantSearchItemBuilder();
   // TODO add properties to the builder and call build()
 
-  group(RestaurantResource, () {
+  group(RestaurantSearchItem, () {
     // String restaurantKey
     test('to test the property `restaurantKey`', () async {
-      // TODO
-    });
-
-    // String id
-    test('to test the property `id`', () async {
       // TODO
     });
 

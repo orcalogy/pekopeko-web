@@ -11,7 +11,7 @@ Name | Type
 `appliedFilters` | [AppliedRestaurantFilters](AppliedRestaurantFilters.md)
 `partialResults` | boolean
 `providerStatuses` | [Array&lt;ProviderOperationStatus&gt;](ProviderOperationStatus.md)
-`results` | [Array&lt;RestaurantResource&gt;](RestaurantResource.md)
+`results` | [Array&lt;RestaurantSearchItem&gt;](RestaurantSearchItem.md)
 `pagination` | [RestaurantSearchPagination](RestaurantSearchPagination.md)
 
 ## Example

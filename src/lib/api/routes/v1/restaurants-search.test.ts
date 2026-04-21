@@ -145,6 +145,10 @@ test('search route returns structured provider statuses and offset pagination', 
       },
     },
   ]);
+
+  const [firstResult] = (payload.results ?? []) as Array<Record<string, unknown>>;
+  assert.equal(firstResult?.id, undefined);
+  assert.equal(firstResult?.distance, 120);
 });
 
 test('search route returns a 400 error envelope for invalid request bodies', async () => {

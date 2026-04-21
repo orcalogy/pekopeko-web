@@ -19,7 +19,7 @@ enum RestaurantAliasStatus {
 }
 
 model RestaurantRecord {
-  id                        BigInt                   @id @default(autoincrement())
+  id                        String                   @id @default(cuid())
   restaurantKey             String                   @unique @db.VarChar(32)
   status                    RestaurantRecordStatus   @default(ACTIVE)
   canonicalName             String
@@ -32,14 +32,17 @@ model RestaurantRecord {
   normalizedPhone           String?
   websiteUrl                String?
   normalizedWebsiteHost     String?
+  /// Denormalized provider set kept in sync with active aliases to avoid joins on hot reads.
   providerCoverageKeys      String[]                 @default([])
   lastObservedSource        String?
+  /// Latest validated provider snapshot; parsed through app-side runtime guards before use.
   lastSnapshotJson          Json?
+  /// Latest validated photo proxy payload; parsed through app-side runtime guards before use.
   lastPhotoPayloadJson      Json?
   firstSeenAt               DateTime
   lastSeenAt                DateTime
   closedAt                  DateTime?
-  supersededById            BigInt?
+  supersededById            String?
   supersededBy              RestaurantRecord?        @relation("RestaurantSupersession", fields: [supersededById], references: [id])
   replacements              RestaurantRecord[]       @relation("RestaurantSupersession")
   aliases                   RestaurantAlias[]
@@ -47,18 +50,22 @@ model RestaurantRecord {
   updatedAt                 DateTime                 @updatedAt
 
   @@index([normalizedCanonicalName])
+  @@index([normalizedCanonicalAddress])
   @@index([normalizedPhone])
   @@index([normalizedWebsiteHost])
+  @@index([lat, lng])
+  @@index([supersededById])
   @@map("restaurants")
 }
 
 model RestaurantAlias {
-  id           BigInt                @id @default(autoincrement())
-  restaurantId BigInt
+  id           String                @id @default(cuid())
+  restaurantId String
   restaurant   RestaurantRecord      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   provider     String
   providerId   String
   status       RestaurantAliasStatus @default(ACTIVE)
+  /// Match confidence in the inclusive range [0, 1].
   confidence   Float                 @default(1)
   firstSeenAt  DateTime
   lastSeenAt   DateTime

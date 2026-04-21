@@ -1,5 +1,5 @@
 
-# RestaurantResource
+# RestaurantDetailsResource
 
 
 ## Properties
@@ -7,12 +7,10 @@
 Name | Type
 ------------ | -------------
 `restaurantKey` | string
-`id` | string
 `name` | string
 `address` | string
 `lat` | number
 `lng` | number
-`distance` | number
 `rating` | number
 `priceLevel` | number
 `isOpenNow` | boolean
@@ -35,17 +33,15 @@ Name | Type
 ## Example
 
 ```typescript
-import type { RestaurantResource } from ''
+import type { RestaurantDetailsResource } from ''
 
 // TODO: Update the object below with actual values
 const example = {
   "restaurantKey": null,
-  "id": null,
   "name": null,
   "address": null,
   "lat": null,
   "lng": null,
-  "distance": null,
   "rating": null,
   "priceLevel": null,
   "isOpenNow": null,
@@ -64,7 +60,7 @@ const example = {
   "websiteUrl": null,
   "source": null,
   "providerRefs": null,
-} satisfies RestaurantResource
+} satisfies RestaurantDetailsResource
 
 console.log(example)
 
@@ -73,7 +69,7 @@ const exampleJSON: string = JSON.stringify(example)
 console.log(exampleJSON)
 
 // Parse the JSON string back to an object
-const exampleParsed = JSON.parse(exampleJSON) as RestaurantResource
+const exampleParsed = JSON.parse(exampleJSON) as RestaurantDetailsResource
 console.log(exampleParsed)
 ```
 

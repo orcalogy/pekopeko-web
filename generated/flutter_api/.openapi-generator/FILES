@@ -28,11 +28,12 @@ doc/ProviderOperationStatus.md
 doc/ProviderOperationStatusState.md
 doc/ProviderSource.md
 doc/RestaurantDetailsFreshness.md
+doc/RestaurantDetailsResource.md
 doc/RestaurantDetailsResponse.md
 doc/RestaurantFeature.md
 doc/RestaurantProviderRef.md
-doc/RestaurantResource.md
 doc/RestaurantSearchFilters.md
+doc/RestaurantSearchItem.md
 doc/RestaurantSearchPagination.md
 doc/RestaurantSearchPaginationRequest.md
 doc/RestaurantSearchQuery.md
@@ -84,11 +85,12 @@ lib/src/model/provider_operation_status.dart
 lib/src/model/provider_operation_status_state.dart
 lib/src/model/provider_source.dart
 lib/src/model/restaurant_details_freshness.dart
+lib/src/model/restaurant_details_resource.dart
 lib/src/model/restaurant_details_response.dart
 lib/src/model/restaurant_feature.dart
 lib/src/model/restaurant_provider_ref.dart
-lib/src/model/restaurant_resource.dart
 lib/src/model/restaurant_search_filters.dart
+lib/src/model/restaurant_search_item.dart
 lib/src/model/restaurant_search_pagination.dart
 lib/src/model/restaurant_search_pagination_request.dart
 lib/src/model/restaurant_search_query.dart
@@ -101,3 +103,5 @@ lib/src/model/sort_direction.dart
 lib/src/model/upstream_error_info.dart
 lib/src/serializers.dart
 pubspec.yaml
+test/restaurant_details_resource_test.dart
+test/restaurant_search_item_test.dart
