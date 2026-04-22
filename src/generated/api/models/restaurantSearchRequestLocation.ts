@@ -14,7 +14,7 @@
 
 import { mapValues } from '../runtime.ts';
 /**
- * 
+ * Required when pagination.cursor is omitted.
  * @export
  * @interface RestaurantSearchRequestLocation
  */

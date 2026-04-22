@@ -87,7 +87,7 @@ Use Next.js `useRouter` from `next/navigation` for all navigation. **Never use `
 Client passes `locale` param to `/api/places/nearby`. The API route maps it to `languageCode` for Google Places. Restaurant names, addresses, types, and hours come back in the user's language.
 
 ### Real API Verification
-For live provider and `restaurantKey` checks, prefer `/api/v1/restaurants/search` over `/api/places/nearby` because the v1 route returns `restaurantKey`, `providerRefs`, structured `providerStatuses`, offset pagination, and the resolved provider plan.
+For live provider and `restaurantKey` checks, prefer `/api/v1/restaurants/search` over `/api/places/nearby` because the v1 route returns `restaurantKey`, `providerRefs`, structured `providerStatuses`, cursor pagination, and the resolved provider plan.
 
 ### OpenAPI Source Of Truth
 `openapi/pekopeko-api.yaml` is the contract source for `/api/v1`.

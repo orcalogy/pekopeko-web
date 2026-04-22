@@ -34,7 +34,7 @@ const SEARCH_FILTER_KEYS = [
   'requiredFeatures',
 ] as const;
 const SEARCH_SORT_KEYS = ['by', 'direction'] as const;
-const SEARCH_PAGINATION_KEYS = ['pageSize', 'offset'] as const;
+const SEARCH_PAGINATION_KEYS = ['pageSize', 'cursor'] as const;
 
 interface ReverseGeoInput {
   lat: number;
@@ -57,8 +57,11 @@ export function parseRestaurantSearchRequest(body: unknown): RestaurantSearchInp
   const record = expectObject(body, 'body');
   assertAllowedKeys(record, SEARCH_KEYS, 'body');
 
-  const locationRecord = expectObject(record.location, 'location');
-  assertAllowedKeys(locationRecord, SEARCH_LOCATION_KEYS, 'location');
+  const locationRecord =
+    record.location == null ? undefined : expectObject(record.location, 'location');
+  if (locationRecord) {
+    assertAllowedKeys(locationRecord, SEARCH_LOCATION_KEYS, 'location');
+  }
 
   const queryRecord = record.query == null ? undefined : expectObject(record.query, 'query');
   if (queryRecord) {
@@ -82,6 +85,25 @@ export function parseRestaurantSearchRequest(body: unknown): RestaurantSearchInp
     assertAllowedKeys(paginationRecord, SEARCH_PAGINATION_KEYS, 'pagination');
   }
 
+  const cursor = readOptionalString(paginationRecord?.cursor, 'pagination.cursor');
+  if (cursor != null && cursor.length === 0) {
+    throw new ApiRouteError({
+      status: 400,
+      code: 'invalid_argument',
+      message: 'pagination.cursor must be a non-empty string',
+      details: { field: 'pagination.cursor' },
+    });
+  }
+
+  if (!locationRecord && !cursor) {
+    throw new ApiRouteError({
+      status: 400,
+      code: 'invalid_argument',
+      message: 'location is required when pagination.cursor is omitted',
+      details: { field: 'location' },
+    });
+  }
+
   const categoryId = readOptionalString(queryRecord?.categoryId, 'query.categoryId');
   if (categoryId && !getCategoryById(categoryId)) {
     throw new ApiRouteError({
@@ -95,10 +117,13 @@ export function parseRestaurantSearchRequest(body: unknown): RestaurantSearchInp
   return {
     locale: readOptionalLocale(record.locale, 'locale'),
     provider: readOptionalProviderMode(record.provider, 'provider'),
-    location: {
-      lat: readRequiredNumber(locationRecord.lat, 'location.lat'),
-      lng: readRequiredNumber(locationRecord.lng, 'location.lng'),
-    },
+    location:
+      locationRecord == null
+        ? undefined
+        : {
+            lat: readRequiredNumber(locationRecord.lat, 'location.lat'),
+            lng: readRequiredNumber(locationRecord.lng, 'location.lng'),
+          },
     radiusM: readOptionalNumber(record.radiusM, 'radiusM'),
     query:
       queryRecord == null
@@ -132,7 +157,7 @@ export function parseRestaurantSearchRequest(body: unknown): RestaurantSearchInp
         ? undefined
         : {
             pageSize: readOptionalNumber(paginationRecord.pageSize, 'pagination.pageSize'),
-            offset: readOptionalNumber(paginationRecord.offset, 'pagination.offset'),
+            cursor: cursor ?? undefined,
           },
   };
 }

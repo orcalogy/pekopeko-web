@@ -54,15 +54,15 @@ const baseSearchResult = {
     },
   ],
   pagination: {
+    mode: 'cursor',
     pageSize: 20,
-    offset: 0,
-    nextOffset: 20,
+    nextCursor: 'cursor-token',
     returned: 1,
     total: 42,
   },
 } satisfies RestaurantSearchResult;
 
-test('search route returns structured provider statuses and offset pagination', async () => {
+test('search route returns structured provider statuses and cursor pagination', async () => {
   let capturedInput: unknown;
   let capturedAcceptLanguage: string | null | undefined;
 
@@ -93,7 +93,7 @@ test('search route returns structured provider statuses and offset pagination', 
         radiusM: 500,
         filters: { openNow: true, requiredFeatures: ['wifi'] },
         sort: { by: 'distance', direction: 'asc' },
-        pagination: { pageSize: 20, offset: 0 },
+        pagination: { pageSize: 20 },
       }),
     }),
   );
@@ -113,7 +113,7 @@ test('search route returns structured provider statuses and offset pagination', 
       requiredFeatures: ['wifi'],
     },
     sort: { by: 'distance', direction: 'asc' },
-    pagination: { pageSize: 20, offset: 0 },
+    pagination: { pageSize: 20, cursor: undefined },
   });
 
   assert.equal(response.status, 200);
@@ -124,9 +124,9 @@ test('search route returns structured provider statuses and offset pagination', 
   assert.equal(payload.requestId, 'req-search-route');
   assert.equal(payload.partialResults, true);
   assert.deepEqual(payload.pagination, {
+    mode: 'cursor',
     pageSize: 20,
-    offset: 0,
-    nextOffset: 20,
+    nextCursor: 'cursor-token',
     returned: 1,
     total: 42,
   });

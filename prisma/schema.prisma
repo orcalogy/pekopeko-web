@@ -32,8 +32,6 @@ model RestaurantRecord {
   normalizedPhone           String?
   websiteUrl                String?
   normalizedWebsiteHost     String?
-  /// Denormalized provider set kept in sync with active aliases to avoid joins on hot reads.
-  providerCoverageKeys      String[]                 @default([])
   lastObservedSource        String?
   /// Latest validated provider snapshot; parsed through app-side runtime guards before use.
   lastSnapshotJson          Json?

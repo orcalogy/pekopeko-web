@@ -4,6 +4,7 @@ apis/restaurantsApi.ts
 apis/systemApi.ts
 docs/ApiError.md
 docs/ApiErrorCode.md
+docs/ApiErrorDetails.md
 docs/ApiErrorResponse.md
 docs/ApiVersion.md
 docs/AppLocale.md
@@ -50,6 +51,7 @@ docs/UpstreamErrorInfo.md
 index.ts
 models/apiError.ts
 models/apiErrorCode.ts
+models/apiErrorDetails.ts
 models/apiErrorResponse.ts
 models/apiVersion.ts
 models/appLocale.ts

@@ -18,7 +18,7 @@
  * @enum {string}
  */
 export enum PaginationMode {
-    offset = 'offset',
+    cursor = 'cursor',
     unknown_default_open_api = '11184809'
 }
 

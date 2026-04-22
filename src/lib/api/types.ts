@@ -105,7 +105,7 @@ export interface RestaurantSearchInput {
   };
   pagination?: {
     pageSize?: number;
-    offset?: number;
+    cursor?: string | null;
   };
 }
 
@@ -135,9 +135,9 @@ export interface RestaurantSearchResult {
   providerStatuses: ProviderExecutionStatus[];
   results: ApiRestaurantRecord[];
   pagination: {
+    mode: 'cursor';
     pageSize: number;
-    offset: number;
-    nextOffset: number | null;
+    nextCursor: string | null;
     returned: number;
     total: number;
   };

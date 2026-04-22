@@ -13,6 +13,14 @@
  */
 
 import { mapValues } from '../runtime.ts';
+import type { PaginationMode } from './paginationMode.ts';
+import {
+    PaginationModeFromJSON,
+    PaginationModeFromJSONTyped,
+    PaginationModeToJSON,
+    PaginationModeToJSONTyped,
+} from './paginationMode.ts';
+
 /**
  * 
  * @export
@@ -21,22 +29,22 @@ import { mapValues } from '../runtime.ts';
 export interface RestaurantSearchPagination {
     /**
      * 
+     * @type {PaginationMode}
+     * @memberof RestaurantSearchPagination
+     */
+    mode: PaginationMode;
+    /**
+     * 
      * @type {number}
      * @memberof RestaurantSearchPagination
      */
     pageSize: number;
     /**
      * 
-     * @type {number}
+     * @type {string}
      * @memberof RestaurantSearchPagination
      */
-    offset: number;
-    /**
-     * 
-     * @type {number}
-     * @memberof RestaurantSearchPagination
-     */
-    nextOffset?: number | null;
+    nextCursor?: string | null;
     /**
      * 
      * @type {number}
@@ -51,12 +59,14 @@ export interface RestaurantSearchPagination {
     total: number;
 }
 
+
+
 /**
  * Check if a given object implements the RestaurantSearchPagination interface.
  */
 export function instanceOfRestaurantSearchPagination(value: object): value is RestaurantSearchPagination {
+    if (!('mode' in value) || value['mode'] === undefined) return false;
     if (!('pageSize' in value) || value['pageSize'] === undefined) return false;
-    if (!('offset' in value) || value['offset'] === undefined) return false;
     if (!('returned' in value) || value['returned'] === undefined) return false;
     if (!('total' in value) || value['total'] === undefined) return false;
     return true;
@@ -72,9 +82,9 @@ export function RestaurantSearchPaginationFromJSONTyped(json: any, ignoreDiscrim
     }
     return {
         
+        'mode': PaginationModeFromJSON(json['mode']),
         'pageSize': json['pageSize'],
-        'offset': json['offset'],
-        'nextOffset': json['nextOffset'] == null ? undefined : json['nextOffset'],
+        'nextCursor': json['nextCursor'] == null ? undefined : json['nextCursor'],
         'returned': json['returned'],
         'total': json['total'],
     };
@@ -91,9 +101,9 @@ export function RestaurantSearchPaginationToJSONTyped(value?: RestaurantSearchPa
 
     return {
         
+        'mode': PaginationModeToJSON(value['mode']),
         'pageSize': value['pageSize'],
-        'offset': value['offset'],
-        'nextOffset': value['nextOffset'],
+        'nextCursor': value['nextCursor'],
         'returned': value['returned'],
         'total': value['total'],
     };

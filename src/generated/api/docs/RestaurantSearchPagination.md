@@ -6,9 +6,9 @@
 
 Name | Type
 ------------ | -------------
+`mode` | [PaginationMode](PaginationMode.md)
 `pageSize` | number
-`offset` | number
-`nextOffset` | number
+`nextCursor` | string
 `returned` | number
 `total` | number
 
@@ -19,9 +19,9 @@ import type { RestaurantSearchPagination } from ''
 
 // TODO: Update the object below with actual values
 const example = {
+  "mode": null,
   "pageSize": null,
-  "offset": null,
-  "nextOffset": null,
+  "nextCursor": null,
   "returned": null,
   "total": null,
 } satisfies RestaurantSearchPagination

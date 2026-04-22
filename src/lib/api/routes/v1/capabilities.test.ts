@@ -28,7 +28,7 @@ test('capabilities route exposes the search contract metadata', async () => {
     categories: Array<{ name: Record<string, string> }>;
   };
 
-  assert.equal(payload.search.paginationMode, 'offset');
+  assert.equal(payload.search.paginationMode, 'cursor');
   assert.deepEqual(payload.search.sortBy, ['distance', 'rating']);
   assert.deepEqual(payload.search.sortDirections, ['asc', 'desc']);
   assert.equal(payload.search.requiredFeatures.includes('wifi'), true);

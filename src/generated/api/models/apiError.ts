@@ -13,6 +13,13 @@
  */
 
 import { mapValues } from '../runtime.ts';
+import type { ApiErrorDetails } from './apiErrorDetails.ts';
+import {
+    ApiErrorDetailsFromJSON,
+    ApiErrorDetailsFromJSONTyped,
+    ApiErrorDetailsToJSON,
+    ApiErrorDetailsToJSONTyped,
+} from './apiErrorDetails.ts';
 import type { ApiErrorCode } from './apiErrorCode.ts';
 import {
     ApiErrorCodeFromJSON,
@@ -47,10 +54,10 @@ export interface ApiError {
     requestId: string;
     /**
      * 
-     * @type {{ [key: string]: any; }}
+     * @type {ApiErrorDetails}
      * @memberof ApiError
      */
-    details?: { [key: string]: any; };
+    details?: ApiErrorDetails;
 }
 
 
@@ -78,7 +85,7 @@ export function ApiErrorFromJSONTyped(json: any, ignoreDiscriminator: boolean): 
         'code': ApiErrorCodeFromJSON(json['code']),
         'message': json['message'],
         'requestId': json['requestId'],
-        'details': json['details'] == null ? undefined : json['details'],
+        'details': json['details'] == null ? undefined : ApiErrorDetailsFromJSON(json['details']),
     };
 }
 
@@ -96,7 +103,7 @@ export function ApiErrorToJSONTyped(value?: ApiError | null, ignoreDiscriminator
         'code': ApiErrorCodeToJSON(value['code']),
         'message': value['message'],
         'requestId': value['requestId'],
-        'details': value['details'],
+        'details': ApiErrorDetailsToJSON(value['details']),
     };
 }
 

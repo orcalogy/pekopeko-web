@@ -23,7 +23,6 @@ test('parses camelCase restaurant search requests', () => {
     },
     pagination: {
       pageSize: 20,
-      offset: 40,
     },
   });
 
@@ -49,7 +48,29 @@ test('parses camelCase restaurant search requests', () => {
     },
     pagination: {
       pageSize: 20,
-      offset: 40,
+      cursor: undefined,
+    },
+  });
+});
+
+test('parses cursor-only restaurant search requests', () => {
+  const parsed = parseRestaurantSearchRequest({
+    pagination: {
+      cursor: 'cursor-token',
+    },
+  });
+
+  assert.deepEqual(parsed, {
+    locale: undefined,
+    provider: undefined,
+    location: undefined,
+    radiusM: undefined,
+    query: undefined,
+    filters: undefined,
+    sort: undefined,
+    pagination: {
+      pageSize: undefined,
+      cursor: 'cursor-token',
     },
   });
 });

@@ -27,10 +27,10 @@ export interface RestaurantSearchPaginationRequest {
     pageSize?: number;
     /**
      * 
-     * @type {number}
+     * @type {string}
      * @memberof RestaurantSearchPaginationRequest
      */
-    offset?: number;
+    cursor?: string;
 }
 
 /**
@@ -51,7 +51,7 @@ export function RestaurantSearchPaginationRequestFromJSONTyped(json: any, ignore
     return {
         
         'pageSize': json['pageSize'] == null ? undefined : json['pageSize'],
-        'offset': json['offset'] == null ? undefined : json['offset'],
+        'cursor': json['cursor'] == null ? undefined : json['cursor'],
     };
 }
 
@@ -67,7 +67,7 @@ export function RestaurantSearchPaginationRequestToJSONTyped(value?: RestaurantS
     return {
         
         'pageSize': value['pageSize'],
-        'offset': value['offset'],
+        'cursor': value['cursor'],
     };
 }
 

@@ -16,7 +16,7 @@ test('capabilities serializer keeps zh-CN on the wire shape', () => {
   assert.equal('zh_CN' in (payload.categories[0]?.name ?? {}), false);
 });
 
-test('search serializer emits providerStatuses and offset pagination', () => {
+test('search serializer emits providerStatuses and cursor pagination', () => {
   const payload = serializeRestaurantSearchResponse(
     {
       locale: 'ja',
@@ -64,9 +64,9 @@ test('search serializer emits providerStatuses and offset pagination', () => {
         },
       ],
       pagination: {
+        mode: 'cursor',
         pageSize: 20,
-        offset: 0,
-        nextOffset: 20,
+        nextCursor: 'cursor-token',
         returned: 1,
         total: 42,
       },
@@ -83,9 +83,9 @@ test('search serializer emits providerStatuses and offset pagination', () => {
   assert.equal(payload.requestId, 'req-123');
   assert.equal(payload.partialResults, true);
   assert.deepEqual(payload.pagination, {
+    mode: 'cursor',
     pageSize: 20,
-    offset: 0,
-    nextOffset: 20,
+    nextCursor: 'cursor-token',
     returned: 1,
     total: 42,
   });

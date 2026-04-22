@@ -9,7 +9,7 @@ Name | Type
 `code` | [ApiErrorCode](ApiErrorCode.md)
 `message` | string
 `requestId` | string
-`details` | { [key: string]: any; }
+`details` | [ApiErrorDetails](ApiErrorDetails.md)
 
 ## Example
 

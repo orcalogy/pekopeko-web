@@ -75,7 +75,7 @@ pnpm dev
 The current `v1` contract is schema-first and intentionally stricter than the old ad hoc JSON:
 
 - request and response fields use camelCase
-- search pagination is explicit offset pagination, not opaque page tokens
+- search pagination uses opaque cursor tokens for stable multi-page traversal
 - search exposes structured `providerStatuses`
 - restaurant details return `{ restaurant, freshness, providerStatuses }`
 - capabilities publish search enums, feature codes, and category metadata

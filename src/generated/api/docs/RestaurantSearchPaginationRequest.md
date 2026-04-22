@@ -7,7 +7,7 @@
 Name | Type
 ------------ | -------------
 `pageSize` | number
-`offset` | number
+`cursor` | string
 
 ## Example
 
@@ -17,7 +17,7 @@ import type { RestaurantSearchPaginationRequest } from ''
 // TODO: Update the object below with actual values
 const example = {
   "pageSize": null,
-  "offset": null,
+  "cursor": null,
 } satisfies RestaurantSearchPaginationRequest
 
 console.log(example)

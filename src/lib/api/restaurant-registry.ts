@@ -149,7 +149,7 @@ export function assertStoredRestaurantRecordIsCurrent(
       message: 'Restaurant is closed',
       details: {
         restaurantKey: record.restaurantKey,
-        status: 'closed',
+        state: 'closed',
       },
     });
   }
@@ -283,10 +283,6 @@ async function updateRestaurantRecord(
       normalizedPhone: observation.normalizedPhone ?? record.normalizedPhone,
       websiteUrl: observation.websiteUrl ?? record.websiteUrl,
       normalizedWebsiteHost: observation.normalizedWebsiteHost ?? record.normalizedWebsiteHost,
-      providerCoverageKeys: mergeProviderCoverage(
-        record.providerCoverageKeys,
-        observation.providerRefs,
-      ),
       lastObservedSource: observation.source,
       lastSnapshotJson: toNullableJsonValue(observation.snapshot),
       lastPhotoPayloadJson: toNullableJsonValue(observation.photo),
@@ -315,7 +311,6 @@ async function createRestaurantRecord(
       normalizedPhone: observation.normalizedPhone,
       websiteUrl: observation.websiteUrl,
       normalizedWebsiteHost: observation.normalizedWebsiteHost,
-      providerCoverageKeys: [...new Set(observation.providerRefs.map((ref) => ref.provider))],
       lastObservedSource: observation.source,
       lastSnapshotJson: toNullableJsonValue(observation.snapshot),
       lastPhotoPayloadJson: toNullableJsonValue(observation.photo),
@@ -452,10 +447,6 @@ function coerceApiSource(value: string | null): ApiSource {
   }
 
   return 'google';
-}
-
-function mergeProviderCoverage(existing: string[], providerRefs: ApiProviderRef[]): string[] {
-  return [...new Set([...existing, ...providerRefs.map((ref) => ref.provider)])];
 }
 
 function normalizeText(value: string): string {

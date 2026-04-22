@@ -2,6 +2,7 @@
 /* eslint-disable */
 export * from './apiError.ts';
 export * from './apiErrorCode.ts';
+export * from './apiErrorDetails.ts';
 export * from './apiErrorResponse.ts';
 export * from './apiVersion.ts';
 export * from './appLocale.ts';

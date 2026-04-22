@@ -1,6 +1,7 @@
 
 # RestaurantSearchRequestLocation
 
+Required when pagination.cursor is omitted.
 
 ## Properties
 

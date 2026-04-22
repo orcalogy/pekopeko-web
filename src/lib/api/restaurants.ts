@@ -33,6 +33,7 @@ import {
   resolveRestaurantIdentity,
   type StoredRestaurantRecord,
 } from './restaurant-registry';
+import { createSearchCursorPayload, decodeSearchCursor, encodeSearchCursor } from './search-cursor';
 import type {
   ApiProviderRef,
   ApiRestaurantRecord,
@@ -58,11 +59,33 @@ export async function searchRestaurants(params: {
   input: RestaurantSearchInput;
   acceptLanguage: string | null;
 }): Promise<RestaurantSearchResult> {
+  const cursorValue = params.input.pagination?.cursor ?? undefined;
+
+  if (cursorValue) {
+    const cursor = decodeSearchCursor(cursorValue);
+    const pageSize = normalizePageSize(params.input.pagination?.pageSize ?? cursor.pageSize);
+    return buildSearchResultPage({
+      cursor: {
+        ...cursor,
+        pageSize,
+      },
+    });
+  }
+
+  const location = params.input.location;
+  if (!location) {
+    throw new ApiRouteError({
+      status: 400,
+      code: 'invalid_argument',
+      message: 'location is required when pagination.cursor is omitted',
+      details: { field: 'location' },
+    });
+  }
+
   const locale = resolveRequestLocale(params.input.locale, params.acceptLanguage);
   const requestedProvider = normalizeRequestedProvider(params.input.provider);
-  const location = params.input.location;
-  const lat = Number(location?.lat);
-  const lng = Number(location?.lng);
+  const lat = Number(location.lat);
+  const lng = Number(location.lng);
 
   assertValidCoordinates(lat, lng);
 
@@ -75,7 +98,6 @@ export async function searchRestaurants(params: {
   const sortBy = normalizeSortBy(params.input.sort?.by);
   const sortDirection = normalizeSortDirection(params.input.sort?.direction, sortBy);
   const pageSize = normalizePageSize(params.input.pagination?.pageSize);
-  const offset = normalizeOffset(params.input.pagination?.offset);
 
   const baseResolution = await resolveGeoPlan({ lat, lng, locale });
   const resolved = applyProviderOverride(baseResolution, requestedProvider);
@@ -106,10 +128,7 @@ export async function searchRestaurants(params: {
   });
   normalized = sortRestaurants(normalized, sortBy, sortDirection);
 
-  const pagedRestaurants = normalized.slice(offset, offset + pageSize);
-  const pagedResults = await Promise.all(pagedRestaurants.map(enrichRestaurantForApi));
-  const nextOffset = offset + pageSize < normalized.length ? offset + pageSize : null;
-
+  const allResults = await Promise.all(normalized.map(enrichRestaurantForApi));
   const appliedFilters: AppliedRestaurantFilters = {
     openNow,
     ...(minRating != null && minRating > 0 ? { minRating } : {}),
@@ -120,23 +139,20 @@ export async function searchRestaurants(params: {
     sortDirection,
   };
 
-  return {
-    locale,
-    resolved,
-    appliedFilters,
-    partialResults:
-      providerResults.providerStatuses.some((status) => status.status === 'failed') &&
-      providerResults.providerStatuses.some((status) => status.status === 'success'),
-    providerStatuses: providerResults.providerStatuses,
-    results: pagedResults,
-    pagination: {
+  return buildSearchResultPage({
+    cursor: createSearchCursorPayload({
+      locale,
+      resolved,
+      appliedFilters,
+      partialResults:
+        providerResults.providerStatuses.some((status) => status.status === 'failed') &&
+        providerResults.providerStatuses.some((status) => status.status === 'success'),
+      providerStatuses: providerResults.providerStatuses,
+      results: allResults,
       pageSize,
-      offset,
-      nextOffset,
-      returned: pagedResults.length,
-      total: normalized.length,
-    },
-  };
+      startIndex: 0,
+    }),
+  });
 }
 
 export function toCompatibilityRestaurant(record: ApiRestaurantRecord): Restaurant {
@@ -159,6 +175,9 @@ export async function getRestaurantDetails(params: {
       status: 404,
       code: 'not_found',
       message: 'Restaurant not found',
+      details: {
+        restaurantKey: params.restaurantKey,
+      },
     });
   }
   assertStoredRestaurantRecordIsCurrent(storedRecord);
@@ -174,7 +193,10 @@ export async function getRestaurantDetails(params: {
   );
 
   if (!refresh.restaurant && !snapshot) {
-    throw selectDetailRefreshError(refresh.errors);
+    throw attachRestaurantLookupDetails(
+      selectDetailRefreshError(refresh.errors),
+      storedRecord.restaurantKey,
+    );
   }
 
   const restaurant = coalesceRestaurantDetails({
@@ -733,22 +755,6 @@ function normalizePageSize(value: number | undefined): number {
   return Math.round(pageSize);
 }
 
-function normalizeOffset(value: number | undefined): number {
-  if (value == null) return 0;
-  const offset = Number(value);
-
-  if (!Number.isFinite(offset) || offset < 0) {
-    throw new ApiRouteError({
-      status: 400,
-      code: 'invalid_argument',
-      message: 'pagination.offset must be greater than or equal to 0',
-      details: { field: 'pagination.offset' },
-    });
-  }
-
-  return Math.round(offset);
-}
-
 function getPrimaryProviderForSource(source: ApiSource): MapProviderType {
   if (source === 'hotpepper' || source === 'amap') return source;
   return 'google';
@@ -818,6 +824,61 @@ function normalizeDetailRefreshError(error: unknown): ApiRouteError {
         code: 'upstream_error',
         message: 'Restaurant details refresh failed',
       });
+}
+
+function buildSearchResultPage(params: {
+  cursor: ReturnType<typeof createSearchCursorPayload>;
+}): RestaurantSearchResult {
+  const { cursor } = params;
+  const endIndex = Math.min(cursor.startIndex + cursor.pageSize, cursor.results.length);
+  const pageResults = cursor.results.slice(cursor.startIndex, endIndex);
+  const nextCursor =
+    endIndex < cursor.results.length
+      ? encodeSearchCursor({
+          ...cursor,
+          startIndex: endIndex,
+        })
+      : null;
+
+  return {
+    locale: cursor.locale,
+    resolved: cursor.resolved,
+    appliedFilters: cursor.appliedFilters,
+    partialResults: cursor.partialResults,
+    providerStatuses: cursor.providerStatuses,
+    results: pageResults,
+    pagination: {
+      mode: 'cursor',
+      pageSize: cursor.pageSize,
+      nextCursor,
+      returned: pageResults.length,
+      total: cursor.results.length,
+    },
+  };
+}
+
+function attachRestaurantLookupDetails(error: ApiRouteError, restaurantKey: string): ApiRouteError {
+  if (error.code !== 'not_found') {
+    return error;
+  }
+
+  const movedToRestaurantKey =
+    typeof error.details?.movedToRestaurantKey === 'string'
+      ? error.details.movedToRestaurantKey
+      : undefined;
+  const state = error.details?.state === 'closed' ? 'closed' : undefined;
+
+  return new ApiRouteError({
+    status: error.status,
+    code: error.code,
+    message: error.message,
+    retryAfterSeconds: error.retryAfterSeconds,
+    details: {
+      restaurantKey,
+      ...(movedToRestaurantKey ? { movedToRestaurantKey } : {}),
+      ...(state ? { state } : {}),
+    },
+  });
 }
 
 function selectSearchError(errors: ApiRouteError[]): ApiRouteError {

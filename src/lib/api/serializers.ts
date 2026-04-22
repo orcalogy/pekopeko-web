@@ -117,9 +117,9 @@ export function serializeRestaurantSearchResponse(
     providerStatuses: result.providerStatuses.map(serializeProviderExecutionStatus),
     results: result.results.map(serializeRestaurantSearchItem),
     pagination: {
+      mode: result.pagination.mode as unknown as PaginationMode,
       pageSize: result.pagination.pageSize,
-      offset: result.pagination.offset,
-      nextOffset: result.pagination.nextOffset,
+      nextCursor: result.pagination.nextCursor,
       returned: result.pagination.returned,
       total: result.pagination.total,
     },

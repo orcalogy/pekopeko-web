@@ -78,7 +78,6 @@ test('resolveRestaurantIdentity persists and reuses the same record across provi
 
   assert.equal(records.length, 1);
   assert.equal(typeof records[0]?.id, 'string');
-  assert.deepEqual(records[0]?.providerCoverageKeys.sort(), ['google', 'hotpepper']);
   assert.equal(records[0]?.aliases.length, 2);
 
   const stored = await getStoredRestaurantRecord(googleIdentity.restaurantKey);

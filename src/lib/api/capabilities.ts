@@ -24,7 +24,7 @@ export const PHOTO_CACHE_CONTROL = 'public, max-age=86400, s-maxage=86400';
 export const CAPABILITIES_CACHE_CONTROL = 'public, max-age=300, s-maxage=300';
 export const GEO_CACHE_CONTROL = 'public, max-age=3600, s-maxage=3600';
 export const STALE_DETAILS_CACHE_CONTROL = 'no-store';
-export const SEARCH_PAGINATION_MODE = 'offset' as const;
+export const SEARCH_PAGINATION_MODE = 'cursor' as const;
 
 export interface ConfiguredProviders {
   google: boolean;

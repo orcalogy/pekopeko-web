@@ -9,7 +9,7 @@ CREATE TYPE "RestaurantAliasStatus" AS ENUM ('ACTIVE', 'RETIRED', 'SUSPECT');
 
 -- CreateTable
 CREATE TABLE "restaurants" (
-    "id" BIGSERIAL NOT NULL,
+    "id" TEXT NOT NULL,
     "restaurantKey" VARCHAR(32) NOT NULL,
     "status" "RestaurantRecordStatus" NOT NULL DEFAULT 'ACTIVE',
     "canonicalName" TEXT NOT NULL,
@@ -22,14 +22,13 @@ CREATE TABLE "restaurants" (
     "normalizedPhone" TEXT,
     "websiteUrl" TEXT,
     "normalizedWebsiteHost" TEXT,
-    "providerCoverageKeys" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "lastObservedSource" TEXT,
     "lastSnapshotJson" JSONB,
     "lastPhotoPayloadJson" JSONB,
     "firstSeenAt" TIMESTAMP(3) NOT NULL,
     "lastSeenAt" TIMESTAMP(3) NOT NULL,
     "closedAt" TIMESTAMP(3),
-    "supersededById" BIGINT,
+    "supersededById" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -38,8 +37,8 @@ CREATE TABLE "restaurants" (
 
 -- CreateTable
 CREATE TABLE "restaurant_aliases" (
-    "id" BIGSERIAL NOT NULL,
-    "restaurantId" BIGINT NOT NULL,
+    "id" TEXT NOT NULL,
+    "restaurantId" TEXT NOT NULL,
     "provider" TEXT NOT NULL,
     "providerId" TEXT NOT NULL,
     "status" "RestaurantAliasStatus" NOT NULL DEFAULT 'ACTIVE',
@@ -65,10 +64,19 @@ CREATE UNIQUE INDEX "restaurants_restaurantKey_key" ON "restaurants"("restaurant
 CREATE INDEX "restaurants_normalizedCanonicalName_idx" ON "restaurants"("normalizedCanonicalName");
 
 -- CreateIndex
+CREATE INDEX "restaurants_normalizedCanonicalAddress_idx" ON "restaurants"("normalizedCanonicalAddress");
+
+-- CreateIndex
 CREATE INDEX "restaurants_normalizedPhone_idx" ON "restaurants"("normalizedPhone");
 
 -- CreateIndex
 CREATE INDEX "restaurants_normalizedWebsiteHost_idx" ON "restaurants"("normalizedWebsiteHost");
+
+-- CreateIndex
+CREATE INDEX "restaurants_lat_lng_idx" ON "restaurants"("lat", "lng");
+
+-- CreateIndex
+CREATE INDEX "restaurants_supersededById_idx" ON "restaurants"("supersededById");
 
 -- CreateIndex
 CREATE INDEX "restaurant_aliases_restaurantId_idx" ON "restaurant_aliases"("restaurantId");

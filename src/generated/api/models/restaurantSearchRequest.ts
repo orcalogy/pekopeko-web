@@ -86,7 +86,7 @@ export interface RestaurantSearchRequest {
      * @type {RestaurantSearchRequestLocation}
      * @memberof RestaurantSearchRequest
      */
-    location: RestaurantSearchRequestLocation;
+    location?: RestaurantSearchRequestLocation;
     /**
      * 
      * @type {number}
@@ -125,7 +125,6 @@ export interface RestaurantSearchRequest {
  * Check if a given object implements the RestaurantSearchRequest interface.
  */
 export function instanceOfRestaurantSearchRequest(value: object): value is RestaurantSearchRequest {
-    if (!('location' in value) || value['location'] === undefined) return false;
     return true;
 }
 
@@ -141,7 +140,7 @@ export function RestaurantSearchRequestFromJSONTyped(json: any, ignoreDiscrimina
         
         'locale': json['locale'] == null ? undefined : AppLocaleFromJSON(json['locale']),
         'provider': json['provider'] == null ? undefined : ProviderModeFromJSON(json['provider']),
-        'location': RestaurantSearchRequestLocationFromJSON(json['location']),
+        'location': json['location'] == null ? undefined : RestaurantSearchRequestLocationFromJSON(json['location']),
         'radiusM': json['radiusM'] == null ? undefined : json['radiusM'],
         'query': json['query'] == null ? undefined : RestaurantSearchQueryFromJSON(json['query']),
         'filters': json['filters'] == null ? undefined : RestaurantSearchFiltersFromJSON(json['filters']),

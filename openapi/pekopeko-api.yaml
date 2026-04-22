@@ -298,7 +298,7 @@ components:
       enum: [asc, desc]
     PaginationMode:
       type: string
-      enum: [offset]
+      enum: [cursor]
     ProviderOperationStatusState:
       type: string
       enum: [success, failed]
@@ -344,6 +344,30 @@ components:
       properties:
         configured:
           type: boolean
+    ApiErrorDetails:
+      type: object
+      additionalProperties: false
+      properties:
+        field:
+          type: string
+        unsupportedFields:
+          type: array
+          items:
+            type: string
+        index:
+          type: integer
+          minimum: 0
+        value:
+          type: string
+        provider:
+          $ref: '#/components/schemas/ProviderKind'
+        restaurantKey:
+          type: string
+        movedToRestaurantKey:
+          type: string
+        state:
+          type: string
+          enum: [closed]
     ApiError:
       type: object
       additionalProperties: false
@@ -357,8 +381,7 @@ components:
           type: string
           format: uuid
         details:
-          type: object
-          additionalProperties: true
+          $ref: '#/components/schemas/ApiErrorDetails'
     ApiErrorResponse:
       type: object
       additionalProperties: false
@@ -697,13 +720,11 @@ components:
           type: integer
           minimum: 1
           maximum: 40
-        offset:
-          type: integer
-          minimum: 0
+        cursor:
+          type: string
     RestaurantSearchRequest:
       type: object
       additionalProperties: false
-      required: [location]
       properties:
         locale:
           $ref: '#/components/schemas/AppLocale'
@@ -712,6 +733,7 @@ components:
         location:
           type: object
           additionalProperties: false
+          description: Required when pagination.cursor is omitted.
           required: [lat, lng]
           properties:
             lat:
@@ -783,14 +805,14 @@ components:
     RestaurantSearchPagination:
       type: object
       additionalProperties: false
-      required: [pageSize, offset, returned, total]
+      required: [mode, pageSize, returned, total]
       properties:
+        mode:
+          $ref: '#/components/schemas/PaginationMode'
         pageSize:
           type: integer
-        offset:
-          type: integer
-        nextOffset:
-          type: integer
+        nextCursor:
+          type: string
           nullable: true
         returned:
           type: integer
