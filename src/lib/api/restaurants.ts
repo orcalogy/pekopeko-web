@@ -158,7 +158,8 @@ export async function searchRestaurants(params: {
     pageSize,
   });
 
-  const sessionId = allResults.length > pageSize ? await createSearchSession(snapshot) : null;
+  const sessionId =
+    allResults.length > pageSize ? await persistSearchSessionBestEffort(snapshot) : null;
 
   await maybeCleanupExpiredSearchSessions();
 
@@ -470,6 +471,18 @@ export async function enrichRestaurantForApi(restaurant: Restaurant): Promise<Ap
     providerRefs: resolved.providerRefs,
     photo: resolved.photo,
   });
+}
+
+export async function persistSearchSessionBestEffort(
+  snapshot: SearchSessionSnapshot,
+  persist: (snapshot: SearchSessionSnapshot) => Promise<string> = createSearchSession,
+): Promise<string | null> {
+  try {
+    return await persist(snapshot);
+  } catch (error) {
+    console.error('[api] failed to persist search session:', error);
+    return null;
+  }
 }
 
 function buildApiRestaurantRecord(params: {
