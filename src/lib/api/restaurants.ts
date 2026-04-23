@@ -64,7 +64,7 @@ const GOOGLE_LANGUAGE_CODE: Record<AppLocale, string> = {
   en: 'en',
 };
 
-const RESTAURANT_IDENTITY_ENRICH_CONCURRENCY = 3;
+const RESTAURANT_IDENTITY_ENRICH_CONCURRENCY = 1;
 
 export async function searchRestaurants(params: {
   input: RestaurantSearchInput;
