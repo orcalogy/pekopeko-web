@@ -269,6 +269,8 @@ Purpose:
 
 - tell clients which providers and features are configured
 - expose search limits without hard-coding them in every client
+- act as the runtime source of truth for provider modes, pagination mode, freshness states, and
+  supported feature enums
 
 Response:
 
@@ -429,7 +431,17 @@ Request rules:
 - `sort.by` values:
   - `distance`
   - `rating`
-- `pagination.cursor` is an opaque backend-issued continuation token for the current ordered result set; it is not a raw upstream provider page token
+- `pagination.cursor` is a signed, short-lived, server-backed continuation token for the current ordered result set; it is not a raw upstream provider page token
+- `pagination.pageSize` may be set only on the first page
+- follow-up requests using `pagination.cursor` must not also send:
+  - `locale`
+  - `provider`
+  - `location`
+  - `radiusM`
+  - `query`
+  - `filters`
+  - `sort`
+  - `pagination.pageSize`
 
 Provider plan rules:
 
@@ -459,8 +471,20 @@ Search execution rules:
    - `maxPriceLevel`
    - `partySize`
    - `requiredFeatures`
-6. Sort and paginate.
-7. Resolve each result through the restaurant registry and return a stable `restaurantKey`.
+6. Sort the full ordered result set and resolve each result through the restaurant registry to get a
+   stable `restaurantKey`.
+7. If another page exists, persist a short-lived search session in Postgres and return a signed
+   continuation cursor.
+8. Follow-up pages replay the stored ordered snapshot instead of rerunning upstream provider
+   searches.
+
+Pagination session notes:
+
+- search sessions are created only when another page exists
+- session TTL is 30 minutes
+- cursors are signed with `SEARCH_CURSOR_SECRET`
+- rotating `SEARCH_CURSOR_SECRET` invalidates active cursors immediately, which is acceptable for
+  this short-lived pagination flow
 
 Response:
 
@@ -743,6 +767,7 @@ DATABASE_URL=
 GOOGLE_MAPS_SERVER_KEY=
 HOTPEPPER_API_KEY=
 AMAP_SERVER_KEY=
+SEARCH_CURSOR_SECRET=
 RESTAURANT_SEARCH_CACHE_TTL_SECONDS=60
 REVERSE_GEOCODE_CACHE_TTL_SECONDS=3600
 PHOTO_CACHE_TTL_SECONDS=86400

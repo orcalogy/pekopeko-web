@@ -22,6 +22,8 @@ pnpm format     # Biome format
 pnpm openapi:validate        # Validate the OpenAPI schema
 pnpm openapi:generate:ts     # Generate the TypeScript client with openapi-generator
 pnpm openapi:generate        # Validate + generate the TypeScript client
+pnpm test:db:registry        # Live Prisma DB test for registry identity/supersession
+pnpm test:db:search-session  # Live Prisma DB test for session-backed pagination
 ```
 
 ## Setup
@@ -39,6 +41,7 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/pekopeko?schema=publi
 GOOGLE_MAPS_SERVER_KEY=
 HOTPEPPER_API_KEY=
 AMAP_SERVER_KEY=
+SEARCH_CURSOR_SECRET=
 NEXT_PUBLIC_ENABLE_LLM=true
 ```
 
@@ -75,12 +78,13 @@ pnpm dev
 The current `v1` contract is schema-first and intentionally stricter than the old ad hoc JSON:
 
 - request and response fields use camelCase
-- search pagination uses opaque cursor tokens for stable multi-page traversal
+- search pagination uses short-lived server-backed opaque cursor tokens for stable multi-page traversal
 - search exposes structured `providerStatuses`
 - restaurant details return `{ restaurant, freshness, providerStatuses }`
 - capabilities publish search enums, feature codes, and category metadata
 
 Before freezing `v1`, use [API_V1_CHECKLIST.md](API_V1_CHECKLIST.md) as the release checklist for the contract and restaurant registry.
+For client-integration rules, see [API_CLIENT_GUIDE.md](API_CLIENT_GUIDE.md).
 
 ## Live Provider Verification
 

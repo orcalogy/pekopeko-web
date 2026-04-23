@@ -10,23 +10,28 @@ This checklist is for deciding when the current API and restaurant-registry sche
 
 As of 2026-04-23, the runtime is ahead of the freeze documentation.
 
-- The strongest remaining freeze risks are contract decisions and documentation alignment, not the core API architecture.
-- The highest-risk unresolved items are:
-  cursor design,
-  the remaining supersession-integrity decision,
-  and documenting the final client-facing capabilities/usage story.
+- The strongest remaining freeze risks are verification and documentation alignment, not the core
+  API architecture.
+- The highest-value unresolved items are:
+  golden response examples,
+  provider-plan smoke tests,
+  contract round-trip coverage,
+  and photo caching verification.
 - The moved/closed restaurant contract, freshness metadata, and the live DB-backed registry test are now in good shape.
 
 ## Must Finish Before V1 Freeze
 
 ### Contract Decisions
 
-- [ ] Decide whether the current cursor model is acceptable for `v1`.
+- [x] Decide whether the current cursor model is acceptable for `v1`.
   Current state:
-  `src/lib/api/search-cursor.ts` stores the full ordered result set in the opaque cursor.
-  The cursor is base64url JSON, client-readable, client-modifiable, unsigned, and currently has no explicit size bound.
+  `src/lib/api/search-cursor.ts` now signs short-lived continuation tokens that point to a stored
+  `SearchSession` snapshot in Postgres.
   Freeze decision:
-  either accept this as the official `v1` pagination model and document its tradeoffs, or replace it with a server-backed/pointer cursor before freeze.
+  replace the old fat cursor with a server-backed pointer cursor before freeze.
+  Resolution:
+  `v1` uses signed server-backed cursors with a 30-minute TTL, parser-enforced cursor-only
+  follow-up requests, and a 512 KB `resultsJson` bound.
 
 - [x] Freeze the runtime semantics of moved and closed restaurants.
   Current state:
@@ -50,13 +55,16 @@ As of 2026-04-23, the runtime is ahead of the freeze documentation.
   Resolution:
   all four modes remain supported in `v1`, with `auto` as the recommended default.
 
-- [ ] Freeze the capabilities surface as the source of client truth.
+- [x] Freeze the capabilities surface as the source of client truth.
   Current state:
   `/api/v1/capabilities` publishes enums, category metadata, and pagination mode.
   Runtime status:
   largely implemented.
   Freeze decision:
   confirm that clients should rely on capabilities for runtime behavior instead of hardcoding provider/search assumptions.
+  Resolution:
+  `GET /api/v1/capabilities` is the runtime source of truth for provider modes, pagination mode,
+  required feature enums, and detail freshness states.
 
 - [x] Decide whether detail freshness states belong in `/api/v1/capabilities`.
   Current state:
@@ -107,19 +115,23 @@ As of 2026-04-23, the runtime is ahead of the freeze documentation.
   Freeze decision:
   add a DB check constraint or explicitly document that the DB allows it and the app is responsible for prevention.
 
-- [ ] Decide how much supersession integrity `v1` guarantees.
+- [x] Decide how much supersession integrity `v1` guarantees.
   Current state:
   the app resolves chains to the terminal key, but cycles are only handled defensively at read time.
   Freeze decision:
   either keep application-level cycle avoidance as the design, or add stronger write-time protection before freeze.
-  Likely resolution:
-  application-level cycle defense is acceptable for `v1` if that decision is written down clearly.
+  Resolution:
+  `v1` guarantees no self-supersession at the DB layer and application-level cycle defense at read
+  time. Stronger transactional graph-cycle prevention is deferred.
 
-- [ ] Decide whether the current `lat/lng` indexing is enough for `v1`.
+- [x] Decide whether the current `lat/lng` indexing is enough for `v1`.
   Current state:
   there is a composite `(lat, lng)` index, but no true spatial type/index.
   Freeze decision:
   if the registry is cache/identity only for `v1`, this is fine; if local nearby search from the DB is part of `v1`, this is not enough.
+  Resolution:
+  the registry remains cache/identity focused for `v1`, so the current composite `(lat, lng)` index
+  is sufficient and PostGIS stays post-`v1`.
 
 ### Snapshot Policy
 
@@ -161,10 +173,10 @@ As of 2026-04-23, the runtime is ahead of the freeze documentation.
 
 ### Documentation
 
-- [ ] Update `API_DESIGN.md` so it no longer describes already-rejected or ambiguous shapes.
+- [x] Update `API_DESIGN.md` so it no longer describes already-rejected or ambiguous shapes.
   Review focus:
   remove or rewrite the public `id` example, old `page_token` pagination language, outdated rate-limit promises, and any other shapes that contradict the current OpenAPI contract.
-- [ ] Add a short client guide describing:
+- [x] Add a short client guide describing:
   when to call search vs details,
   how to continue pagination,
   how to handle `404` moved/closed cases,
@@ -173,18 +185,19 @@ As of 2026-04-23, the runtime is ahead of the freeze documentation.
 
 ### Runtime Hardening
 
-- [ ] Decide whether cursors should be signed.
+- [x] Decide whether cursors should be signed.
   Current state:
-  cursors are opaque but client-readable and client-modifiable.
-  This may be acceptable for `v1`, but it should be a conscious decision.
-  Low-effort hardening path:
-  HMAC-sign the serialized cursor payload if snapshot-in-cursor is kept.
+  cursors are now HMAC-SHA256-signed server-backed continuation tokens.
 
-- [ ] Define maximum acceptable cursor size and search result size.
+- [x] Define maximum acceptable cursor size and search result size.
   Current state:
-  larger result sets create larger cursor payloads.
+  the cursor token is now short and session-backed, while the stored `resultsJson` snapshot has a
+  hard size bound.
   Freeze decision:
   set a practical upper bound and test it.
+  Resolution:
+  `resultsJson` is capped at 512 KB and oversized snapshots fail fast rather than silently
+  truncating pagination data.
 
 - [ ] Confirm photo caching behavior end to end.
   The contract now exposes `Cache-Control` and actual `Content-Type`; verify the runtime behavior matches the documented intent.
@@ -197,7 +210,8 @@ As of 2026-04-23, the runtime is ahead of the freeze documentation.
 - [ ] Historical snapshot/version tables.
 - [ ] Admin workflows for alias review, suspect resolution, or manual merge/supersession repair.
 - [ ] Provider-agnostic merge/audit event history.
-- [ ] Cursor redesign for very large result sets, if current usage stays small.
+- [ ] Further pagination redesign for very large result sets, if the current session-backed model
+  ever becomes too large or too expensive.
 
 ## Suggested Freeze Gate
 
@@ -207,15 +221,15 @@ Treat `v1` as ready to freeze when all of these are true:
 - [ ] All "Must Finish Before V1 Freeze" items are resolved or consciously downgraded with written rationale.
 - [ ] `pnpm typecheck` passes.
 - [ ] `pnpm check` passes.
-- [ ] The live DB registry test passes.
+- [ ] The live DB registry and search-session tests pass.
 - [ ] At least one real search smoke test has been run for each provider plan that `v1` claims to support.
 
 ## Recommended Call Right Now
 
 If we wanted to freeze soon, these are the highest-value remaining blockers:
 
-- [ ] Decide whether snapshot-in-cursor pagination is the real `v1` design, and if yes, document its unsigned/size-bounded behavior.
-- [ ] Decide how much supersession-integrity protection `v1` needs beyond read-time cycle defense.
-- [ ] Freeze the capabilities/client-truth story and write the short client guide.
-- [ ] Decide whether to add cursor signing and a practical cursor-size bound before freeze.
-- [ ] Update the older design docs so they stop contradicting the current `v1`.
+- [ ] Add golden response examples for the core success paths.
+- [ ] Add one real smoke test run for each supported provider plan.
+- [ ] Add contract round-trip coverage between generated client types and live serializers.
+- [ ] Add dedicated operational notes for dev registry reset/reseed flows.
+- [ ] Confirm photo caching behavior end to end.
