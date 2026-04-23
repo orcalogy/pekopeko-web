@@ -80,6 +80,8 @@ The current `v1` contract is schema-first and intentionally stricter than the ol
 - restaurant details return `{ restaurant, freshness, providerStatuses }`
 - capabilities publish search enums, feature codes, and category metadata
 
+Before freezing `v1`, use [API_V1_CHECKLIST.md](API_V1_CHECKLIST.md) as the release checklist for the contract and restaurant registry.
+
 ## Live Provider Verification
 
 With `.env.local` populated and the Prisma migration applied, the most useful end-to-end check is the v1 search API because it returns both `restaurantKey` and `providerRefs`.

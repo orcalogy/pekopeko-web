@@ -8,7 +8,7 @@
 - Scope: restaurant search, region detection, media proxying, and backend capability discovery
 - Goal: provide one stable API for the Next.js web app and the Flutter mobile app while keeping provider keys server-side
 - Current identity implementation:
-  - `restaurant_key` is a stable server-managed database id resolved through a Prisma/PostgreSQL registry
+  - `restaurantKey` is a stable server-managed database id resolved through a Prisma/PostgreSQL registry
   - it is not an encrypted token and it does not embed provider refs or fallback snapshots in the key itself
 - Phase 1 implementation target in this repo:
   - `GET /api/v1/health`
@@ -133,10 +133,10 @@ All non-2xx JSON responses should use this shape:
 {
   "error": {
     "code": "invalid_argument",
-    "message": "radius_m must be between 100 and 10000",
-    "request_id": "8c74f5d8-5c36-4f95-bf17-2fd4c55b2e79",
+    "message": "radiusM must be between 100 and 10000",
+    "requestId": "8c74f5d8-5c36-4f95-bf17-2fd4c55b2e79",
     "details": {
-      "field": "radius_m"
+      "field": "radiusM"
     }
   }
 }
@@ -167,16 +167,23 @@ Japan can be partially successful if one upstream provider fails and the other s
 
 Search responses should include:
 
-- `partial_results: boolean`
-- `warnings: string[]`
+- `partialResults: boolean`
+- `providerStatuses: ProviderOperationStatus[]`
 
 Example:
 
 ```json
 {
-  "partial_results": true,
-  "warnings": [
-    "google provider failed; returning HotPepper-only results"
+  "partialResults": true,
+  "providerStatuses": [
+    {
+      "provider": "google",
+      "status": "failed",
+      "error": {
+        "code": "upstream_error",
+        "message": "google search failed"
+      }
+    }
   ]
 }
 ```
@@ -187,8 +194,7 @@ The normalized `Restaurant` payload must stay compatible with the existing `src/
 
 ```json
 {
-  "restaurant_key": "rid_abcd1234",
-  "id": "ChIJ4zGFAZpYwokRGUGph3Mf37k",
+  "restaurantKey": "rid_abcd1234",
   "name": "Example Ramen",
   "address": "1-2-3 Shibuya, Tokyo",
   "lat": 35.6595,
@@ -211,14 +217,14 @@ The normalized `Restaurant` payload must stay compatible with the existing `src/
   "menuUrl": "https://www.hotpepper.jp/strJ001234567/food/",
   "websiteUrl": "https://example-ramen.jp",
   "source": "hybrid",
-  "provider_refs": [
+  "providerRefs": [
     {
       "provider": "google",
-      "provider_id": "ChIJ4zGFAZpYwokRGUGph3Mf37k"
+      "providerId": "ChIJ4zGFAZpYwokRGUGph3Mf37k"
     },
     {
       "provider": "hotpepper",
-      "provider_id": "J001234567"
+      "providerId": "J001234567"
     }
   ]
 }
@@ -226,15 +232,14 @@ The normalized `Restaurant` payload must stay compatible with the existing `src/
 
 Field notes:
 
-- `restaurant_key` is an opaque backend-owned key for future details/media routes.
+- `restaurantKey` is an opaque backend-owned key for future details/media routes.
 - current implementation note:
   - the key is generated once when a restaurant registry row is created
   - provider refs, last snapshot, and photo metadata live in the database, not inside the key
-- `id` remains the compatibility field expected by the current frontend. For merged results it should be the Google id when present, otherwise the primary provider id.
 - `distance` is meters from the user-supplied search origin.
 - `priceLevel` uses the existing normalized 0-4 scale where available.
 - `photoUrl` must be client-consumable without exposing upstream secrets.
-- `provider_refs` is additive and new; it should not break old clients.
+- `providerRefs` is additive and new; it should not break old clients.
 
 ## Endpoint Design
 
@@ -271,7 +276,6 @@ Response:
 {
   "version": "v1",
   "locales": ["zh-CN", "ja", "en"],
-  "radius_presets_m": [300, 500, 750, 1000, 1500, 2000, 3000, 4000, 5000, 6000, 8000, 10000],
   "providers": {
     "google": {
       "configured": true
@@ -283,12 +287,25 @@ Response:
       "configured": true
     }
   },
+  "geo": {
+    "strategies": ["hybrid_japan", "google_global", "china_amap", "fallback_heuristic", "manual_override"],
+    "confidences": ["high", "medium", "low"]
+  },
+  "details": {
+    "freshnessStates": ["live", "partial_live", "snapshot"]
+  },
   "search": {
-    "default_radius_m": 2000,
-    "min_radius_m": 100,
-    "max_radius_m": 10000,
-    "default_page_size": 20,
-    "max_page_size": 40
+    "defaultRadiusM": 2000,
+    "minRadiusM": 100,
+    "maxRadiusM": 10000,
+    "radiusPresetsM": [300, 500, 750, 1000, 1500, 2000, 3000, 4000, 5000, 6000, 8000, 10000],
+    "defaultPageSize": 20,
+    "maxPageSize": 40,
+    "paginationMode": "cursor",
+    "providerModes": ["auto", "google", "hotpepper", "amap"],
+    "sortBy": ["distance", "rating"],
+    "sortDirections": ["asc", "desc"],
+    "requiredFeatures": ["wifi", "lunch", "private_room", "english", "non_smoking", "card", "parking"]
   }
 }
 ```
@@ -319,7 +336,7 @@ Response:
 {
   "country": "JP",
   "provider": "hotpepper",
-  "provider_plan": ["hotpepper", "google"],
+  "providerPlan": ["hotpepper", "google"],
   "strategy": "hybrid_japan",
   "confidence": "high"
 }
@@ -328,7 +345,7 @@ Response:
 Response fields:
 
 - `provider` preserves the current coarse primary provider behavior expected by the existing app, but it must always be a configured and actually usable backend
-- `provider_plan` is the real execution plan the search endpoint should use
+- `providerPlan` is the real execution plan the search endpoint should use
 - `strategy` values:
   - `china_amap`
   - `hybrid_japan`
@@ -346,7 +363,7 @@ Resolution rules:
 2. Otherwise, if Google is configured, use Google reverse geocode to determine country.
 3. If upstream reverse geocode fails, use coordinate heuristics:
    - China bounds -> `CN`, `amap`
-   - Japan bounds -> `JP`, `hotpepper` with `provider_plan: ["hotpepper", "google"]` when Google is configured
+   - Japan bounds -> `JP`, `hotpepper` with `providerPlan: ["hotpepper", "google"]` when Google is configured
    - otherwise -> `UNKNOWN`, `google`
 4. If the region-preferred provider is not configured, fall back to the next usable provider instead of returning an unusable plan. Examples:
    - `CN` without Amap but with Google -> `provider: "google"`
@@ -378,25 +395,25 @@ Request:
     "lat": 35.6595,
     "lng": 139.7005
   },
-  "radius_m": 2000,
+  "radiusM": 2000,
   "query": {
     "keyword": "ramen",
-    "category_id": "noodles"
+    "categoryId": "noodles"
   },
   "filters": {
-    "open_now": true,
-    "min_rating": 4.0,
-    "max_price_level": 2,
-    "party_size": 2,
-    "required_features": ["non_smoking", "card"]
+    "openNow": true,
+    "minRating": 4.0,
+    "maxPriceLevel": 2,
+    "partySize": 2,
+    "requiredFeatures": ["non_smoking", "card"]
   },
   "sort": {
     "by": "distance",
     "direction": "asc"
   },
   "pagination": {
-    "page_size": 20,
-    "page_token": null
+    "pageSize": 20,
+    "cursor": null
   }
 }
 ```
@@ -404,15 +421,15 @@ Request:
 Request rules:
 
 - `provider` default is `auto`
-- `radius_m` default is `2000`
+- `radiusM` default is `2000`
 - `query.keyword` is free text; backend may append provider-specific food/place terms when needed
-- `query.category_id` is an app-level semantic/category hint; backend may translate it into provider-friendly keyword terms
-- `filters.open_now` uses current product semantics: keep items where `isOpenNow !== false`
-- `filters.min_rating`, `filters.max_price_level`, `filters.party_size`, and `filters.required_features` are backend-side normalized filters after provider fetch
+- `query.categoryId` is an app-level semantic/category hint; backend may translate it into provider-friendly keyword terms
+- `filters.openNow` uses current product semantics: keep items where `isOpenNow !== false`
+- `filters.minRating`, `filters.maxPriceLevel`, `filters.partySize`, and `filters.requiredFeatures` are backend-side normalized filters after provider fetch
 - `sort.by` values:
   - `distance`
   - `rating`
-- `pagination.page_token` in phase 1 is an opaque offset token generated by the backend after normalized filtering/sorting; it is not a raw upstream provider page token
+- `pagination.cursor` is an opaque backend-issued continuation token for the current ordered result set; it is not a raw upstream provider page token
 
 Provider plan rules:
 
@@ -427,6 +444,7 @@ Provider plan rules:
   - use Google only
 - `provider=amap`
   - use Amap only
+- explicit provider overrides are supported in `v1`, but `auto` remains the recommended default
 - explicit provider overrides should return `resolved.strategy: "manual_override"`
 
 Search execution rules:
@@ -436,51 +454,54 @@ Search execution rules:
 3. Normalize all results to the shared `Restaurant` model.
 4. In Japan, merge Google and HotPepper results by coordinate proximity under 80 meters.
 5. Apply normalized filters:
-   - `open_now`: remove only `isOpenNow === false`
-   - `min_rating`
-   - `max_price_level`
-   - `party_size`
-   - `required_features`
+   - `openNow`: remove only `isOpenNow === false`
+   - `minRating`
+   - `maxPriceLevel`
+   - `partySize`
+   - `requiredFeatures`
 6. Sort and paginate.
-7. Resolve each result through the restaurant registry and return a stable `restaurant_key`.
+7. Resolve each result through the restaurant registry and return a stable `restaurantKey`.
 
 Response:
 
 ```json
 {
-  "request_id": "ef93b0dd-7bf5-4336-8be4-8862d1ea3ad8",
+  "requestId": "ef93b0dd-7bf5-4336-8be4-8862d1ea3ad8",
   "resolved": {
     "country": "JP",
     "provider": "hotpepper",
-    "provider_plan": ["hotpepper", "google"],
-    "strategy": "hybrid_japan"
+    "providerPlan": ["hotpepper", "google"],
+    "strategy": "hybrid_japan",
+    "confidence": "high"
   },
-  "applied_filters": {
-    "open_now": true,
-    "min_rating": 4.0,
-    "max_price_level": 2,
-    "party_size": 2,
-    "required_features": ["non_smoking", "card"],
-    "sort_by": "distance"
+  "appliedFilters": {
+    "openNow": true,
+    "minRating": 4.0,
+    "maxPriceLevel": 2,
+    "partySize": 2,
+    "requiredFeatures": ["non_smoking", "card"],
+    "sortBy": "distance",
+    "sortDirection": "asc"
   },
-  "partial_results": false,
-  "warnings": [],
+  "partialResults": false,
   "results": [],
   "pagination": {
-    "page_size": 20,
-    "next_page_token": null,
-    "returned": 0
+    "mode": "cursor",
+    "pageSize": 20,
+    "nextCursor": null,
+    "returned": 0,
+    "total": 0
   },
-  "provider_stats": [
+  "providerStatuses": [
     {
       "provider": "hotpepper",
-      "raw_results": 42,
-      "normalized_results": 42
+      "status": "success",
+      "rawResults": 42
     },
     {
       "provider": "google",
-      "raw_results": 27,
-      "normalized_results": 27
+      "status": "success",
+      "rawResults": 27
     }
   ]
 }
@@ -490,11 +511,11 @@ Validation:
 
 - `location.lat` required
 - `location.lng` required
-- `100 <= radius_m <= 10000`
-- `0 <= filters.min_rating <= 5`
-- `0 <= filters.max_price_level <= 4`
-- `1 <= filters.party_size <= 50`
-- `1 <= pagination.page_size <= 40`
+- `100 <= radiusM <= 10000`
+- `0 <= filters.minRating <= 5`
+- `0 <= filters.maxPriceLevel <= 4`
+- `1 <= filters.partySize <= 50`
+- `1 <= pagination.pageSize <= 40`
 
 Cache:
 
@@ -538,13 +559,19 @@ Response:
 
 Behavior:
 
-- resolve the restaurant from the registry by `restaurant_key`
+- resolve the restaurant from the registry by `restaurantKey`
 - if the key represents a merged result, refetch or rehydrate from the aliased providers and merge enrichment fields again
 - if the key cannot be resolved, return `404 not_found`
 - current implementation note:
-  - the backend attempts provider-specific detail refresh by `provider_refs` stored in the registry
+  - the backend attempts provider-specific detail refresh by `providerRefs` stored in the registry
   - if refresh fails but the registry has a stored normalized snapshot, return that snapshot instead of failing
-  - the `restaurant_key` itself remains stable across refreshes
+  - freshness is explicit:
+    - `live`: all provider detail refreshes needed for the payload succeeded
+    - `partial_live`: at least one live provider refresh succeeded, but some detail data may still be stale or missing
+    - `snapshot`: no live detail refresh succeeded, so the last stored snapshot is returned
+  - moved restaurants return `404 not_found` with `details.movedToRestaurantKey`
+  - closed restaurants return `404 not_found` with `details.state = "closed"`
+  - the `restaurantKey` itself remains stable across refreshes until the record is superseded
 
 Cache:
 
@@ -615,8 +642,8 @@ Incoming query:
 Adapter behavior:
 
 - map `provider` to `provider` or `auto`
-- map `radius` to `radius_m`
-- map `openNow=true` to `filters.open_now=true`
+- map `radius` to `radiusM`
+- map `openNow=true` to `filters.openNow=true`
 - call `POST /api/v1/restaurants/search`
 - return only `results`
 
@@ -640,11 +667,10 @@ When both Google and HotPepper are available in Japan:
 
 1. Match results by haversine distance under 80 meters.
 2. Use Google as the base for:
-   - id
    - rating
    - real-time `isOpenNow`
    - phone
-   - better navigation URL
+   - better `placeUrl`
 3. Enrich from HotPepper:
    - `detailUrl`
    - `couponUrl`
@@ -656,12 +682,12 @@ When both Google and HotPepper are available in Japan:
 4. Prefer Google photo/hours/cuisine when present; otherwise fall back to HotPepper.
 5. Mark merged records as `source: "hybrid"`.
 
-### `open_now` Semantics
+### `openNow` Semantics
 
 This must match the current source app:
 
-- If `open_now=false` or omitted, do not filter on open state.
-- If `open_now=true`, keep records where:
+- If `openNow=false` or omitted, do not filter on open state.
+- If `openNow=true`, keep records where:
   - `isOpenNow === true`
   - `isOpenNow === undefined`
 - Remove only records where `isOpenNow === false`.
@@ -672,11 +698,16 @@ This matters because Amap and some HotPepper results do not have reliable real-t
 
 No user auth is required, but the backend should still protect itself.
 
-Recommended limits:
+Potential future local limits:
 
 - `geo/reverse`: 120 requests per minute per IP
 - `restaurants/search`: 60 requests per minute per IP
 - `restaurant photo`: 300 requests per minute per IP
+
+Current `v1` contract note:
+
+- `429` exists primarily for upstream provider quota/rate-limit passthrough
+- local per-IP throttling is recommended but not guaranteed by the current runtime
 
 Recommended controls:
 
@@ -733,7 +764,7 @@ PHOTO_CACHE_TTL_SECONDS=86400
     - provider resolution
     - Japan merge correctness
     - canonical details refresh and registry snapshot fallback behavior
-    - `open_now` filtering semantics
+    - `openNow` filtering semantics
     - normalized field mapping
     - partial-results behavior when one provider fails
 
@@ -749,7 +780,7 @@ PHOTO_CACHE_TTL_SECONDS=86400
   - HotPepper-backed result
   - hybrid JP result
   - registry snapshot fallback when upstream detail refresh fails
-- `open_now=true` with mixed `true`, `false`, and `undefined`
+- `openNow=true` with mixed `true`, `false`, and `undefined`
 - rating, budget, capacity, and feature filters
 - photo endpoint with Google-backed results
 
@@ -760,7 +791,7 @@ The Flutter app should consume only the normalized API:
 - it should not know provider-specific REST details
 - it should not ship provider API keys
 - it should trust `photoUrl` as a client-safe image URL
-- it should treat `restaurant_key` as opaque and stable
+- it should treat `restaurantKey` as opaque and stable
 - it can refresh a restaurant card or deep-linked detail page by calling `GET /api/v1/restaurants/:restaurantKey`
 
 That keeps the mobile app simple and keeps provider changes isolated to the backend.
