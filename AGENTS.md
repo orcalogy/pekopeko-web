@@ -89,6 +89,13 @@ Client passes `locale` param to `/api/places/nearby`. The API route maps it to `
 ### Real API Verification
 For live provider and `restaurantKey` checks, prefer `/api/v1/restaurants/search` over `/api/places/nearby` because the v1 route returns `restaurantKey`, `providerRefs`, structured `providerStatuses`, cursor pagination, and the resolved provider plan.
 
+### Vercel + Prisma Verification
+Test important API and search changes against the real Vercel + Prisma environment, not just local dev.
+
+- Commit the change, push it, and verify the deployed `dev` branch build on Vercel before considering the work done. Vercel is already configured to auto-deploy `dev` on push.
+- Open the deployed site and run an end-to-end check there, including the user-facing flow and any relevant API-backed behavior.
+- If a clean rerun is the fastest path, it is acceptable to wipe the database before repeating live verification.
+
 ### OpenAPI Source Of Truth
 `openapi/pekopeko-api.yaml` is the contract source for `/api/v1`.
 
@@ -112,4 +119,5 @@ Next.js 16 requires a `<Suspense>` boundary around any component using `useSearc
 - **Build flag**: `pnpm build` uses `--webpack` (not Turbopack) because Serwist requires Webpack for SW bundling. Dev uses `--turbopack`.
 - **Cookie Store API**: Use `window.cookieStore.set()` instead of `document.cookie` to avoid Biome's `noDocumentCookie` rule.
 - **Fresh dev DBs**: If `.env.local` points at a new database, run `pnpm prisma:migrate:deploy` or `pnpm prisma:migrate:dev` before hitting `/api/v1/restaurants/search`, otherwise the registry tables will be missing and live searches will fail.
+- **Database resets are allowed**: If live verification is blocked by dirty or inconsistent Prisma state, it is acceptable to wipe the database and rerun the checks.
 - **Identity reruns**: For a clean dev-only rerun of restaurant identity verification, it is acceptable to truncate `restaurant_aliases` and `restaurants` before repeating the live API checks.
