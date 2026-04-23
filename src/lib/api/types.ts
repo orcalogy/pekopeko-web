@@ -31,6 +31,11 @@ export const GEO_RESOLUTION_CONFIDENCES = ['high', 'medium', 'low'] as const sat
   GeoResolutionConfidence,
   ...GeoResolutionConfidence[],
 ];
+export const DETAIL_FRESHNESS_STATES = [
+  'live',
+  'partial_live',
+  'snapshot',
+] as const satisfies readonly [DetailFreshnessState, ...DetailFreshnessState[]];
 export const RESTAURANT_SORT_OPTIONS = ['distance', 'rating'] as const satisfies readonly [
   RestaurantSortBy,
   ...RestaurantSortBy[],

@@ -1,6 +1,7 @@
 
 # RestaurantDetailsFreshness
 
+Freshness metadata for the detail payload. `snapshot` responses may contain stale registry data and should not be cached beyond the immediate response. 
 
 ## Properties
 

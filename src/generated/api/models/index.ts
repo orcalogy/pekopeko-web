@@ -8,6 +8,7 @@ export * from './apiVersion.ts';
 export * from './appLocale.ts';
 export * from './appliedRestaurantFilters.ts';
 export * from './capabilitiesResponse.ts';
+export * from './capabilitiesResponseDetails.ts';
 export * from './capabilitiesResponseGeo.ts';
 export * from './capabilitiesResponseProviders.ts';
 export * from './capabilitiesResponseSearch.ts';

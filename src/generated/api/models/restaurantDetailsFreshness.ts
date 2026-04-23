@@ -22,6 +22,7 @@ import {
 } from './detailFreshnessState.ts';
 
 /**
+ * Freshness metadata for the detail payload. `snapshot` responses may contain stale registry data and should not be cached beyond the immediate response.
  * 
  * @export
  * @interface RestaurantDetailsFreshness

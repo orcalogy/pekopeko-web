@@ -75,7 +75,7 @@ No authorization required
 |-------------|-------------|------------------|
 | **200** | Restaurant details |  * X-Request-Id -  <br>  |
 | **404** | Resource not found |  * X-Request-Id -  <br>  |
-| **429** | Request was rate limited or upstream quota was exhausted |  * X-Request-Id -  <br>  * Retry-After -  <br>  |
+| **429** | Request was rate limited or upstream quota was exhausted. In v1 this primarily reflects upstream quota/rate-limit passthrough; local per-IP throttling is not guaranteed.  |  * X-Request-Id -  <br>  * Retry-After -  <br>  |
 | **503** | Required upstream provider is unavailable |  * X-Request-Id -  <br>  |
 | **0** | Internal server error |  * X-Request-Id -  <br>  |
 
@@ -147,7 +147,7 @@ No authorization required
 |-------------|-------------|------------------|
 | **200** | Image bytes |  * X-Request-Id -  <br>  * Cache-Control -  <br>  * Content-Type -  <br>  |
 | **404** | Resource not found |  * X-Request-Id -  <br>  |
-| **429** | Request was rate limited or upstream quota was exhausted |  * X-Request-Id -  <br>  * Retry-After -  <br>  |
+| **429** | Request was rate limited or upstream quota was exhausted. In v1 this primarily reflects upstream quota/rate-limit passthrough; local per-IP throttling is not guaranteed.  |  * X-Request-Id -  <br>  * Retry-After -  <br>  |
 | **502** | Upstream provider failure |  * X-Request-Id -  <br>  |
 | **503** | Required upstream provider is unavailable |  * X-Request-Id -  <br>  |
 | **0** | Internal server error |  * X-Request-Id -  <br>  |
@@ -217,7 +217,7 @@ No authorization required
 |-------------|-------------|------------------|
 | **200** | Search results |  * X-Request-Id -  <br>  |
 | **400** | Invalid request |  * X-Request-Id -  <br>  |
-| **429** | Request was rate limited or upstream quota was exhausted |  * X-Request-Id -  <br>  * Retry-After -  <br>  |
+| **429** | Request was rate limited or upstream quota was exhausted. In v1 this primarily reflects upstream quota/rate-limit passthrough; local per-IP throttling is not guaranteed.  |  * X-Request-Id -  <br>  * Retry-After -  <br>  |
 | **502** | Upstream provider failure |  * X-Request-Id -  <br>  |
 | **503** | Required upstream provider is unavailable |  * X-Request-Id -  <br>  |
 | **0** | Internal server error |  * X-Request-Id -  <br>  |

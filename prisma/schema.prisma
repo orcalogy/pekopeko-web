@@ -40,6 +40,7 @@ model RestaurantRecord {
   firstSeenAt               DateTime
   lastSeenAt                DateTime
   closedAt                  DateTime?
+  /// SQL migration enforces that a restaurant cannot supersede itself.
   supersededById            String?
   supersededBy              RestaurantRecord?        @relation("RestaurantSupersession", fields: [supersededById], references: [id])
   replacements              RestaurantRecord[]       @relation("RestaurantSupersession")
@@ -63,7 +64,7 @@ model RestaurantAlias {
   provider     String
   providerId   String
   status       RestaurantAliasStatus @default(ACTIVE)
-  /// Match confidence in the inclusive range [0, 1].
+  /// Match confidence in the inclusive range [0, 1]; enforced by SQL migration.
   confidence   Float                 @default(1)
   firstSeenAt  DateTime
   lastSeenAt   DateTime

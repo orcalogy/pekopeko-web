@@ -10,6 +10,7 @@ docs/ApiVersion.md
 docs/AppLocale.md
 docs/AppliedRestaurantFilters.md
 docs/CapabilitiesResponse.md
+docs/CapabilitiesResponseDetails.md
 docs/CapabilitiesResponseGeo.md
 docs/CapabilitiesResponseProviders.md
 docs/CapabilitiesResponseSearch.md
@@ -57,6 +58,7 @@ models/apiVersion.ts
 models/appLocale.ts
 models/appliedRestaurantFilters.ts
 models/capabilitiesResponse.ts
+models/capabilitiesResponseDetails.ts
 models/capabilitiesResponseGeo.ts
 models/capabilitiesResponseProviders.ts
 models/capabilitiesResponseSearch.ts

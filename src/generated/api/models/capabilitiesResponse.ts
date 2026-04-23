@@ -55,6 +55,13 @@ import {
     CapabilitiesResponseSearchToJSON,
     CapabilitiesResponseSearchToJSONTyped,
 } from './capabilitiesResponseSearch.ts';
+import type { CapabilitiesResponseDetails } from './capabilitiesResponseDetails.ts';
+import {
+    CapabilitiesResponseDetailsFromJSON,
+    CapabilitiesResponseDetailsFromJSONTyped,
+    CapabilitiesResponseDetailsToJSON,
+    CapabilitiesResponseDetailsToJSONTyped,
+} from './capabilitiesResponseDetails.ts';
 
 /**
  * 
@@ -88,6 +95,12 @@ export interface CapabilitiesResponse {
     geo: CapabilitiesResponseGeo;
     /**
      * 
+     * @type {CapabilitiesResponseDetails}
+     * @memberof CapabilitiesResponse
+     */
+    details: CapabilitiesResponseDetails;
+    /**
+     * 
      * @type {CapabilitiesResponseSearch}
      * @memberof CapabilitiesResponse
      */
@@ -110,6 +123,7 @@ export function instanceOfCapabilitiesResponse(value: object): value is Capabili
     if (!('locales' in value) || value['locales'] === undefined) return false;
     if (!('providers' in value) || value['providers'] === undefined) return false;
     if (!('geo' in value) || value['geo'] === undefined) return false;
+    if (!('details' in value) || value['details'] === undefined) return false;
     if (!('search' in value) || value['search'] === undefined) return false;
     if (!('categories' in value) || value['categories'] === undefined) return false;
     return true;
@@ -129,6 +143,7 @@ export function CapabilitiesResponseFromJSONTyped(json: any, ignoreDiscriminator
         'locales': ((json['locales'] as Array<any>).map(AppLocaleFromJSON)),
         'providers': CapabilitiesResponseProvidersFromJSON(json['providers']),
         'geo': CapabilitiesResponseGeoFromJSON(json['geo']),
+        'details': CapabilitiesResponseDetailsFromJSON(json['details']),
         'search': CapabilitiesResponseSearchFromJSON(json['search']),
         'categories': ((json['categories'] as Array<any>).map(CategoryCapabilityFromJSON)),
     };
@@ -149,6 +164,7 @@ export function CapabilitiesResponseToJSONTyped(value?: CapabilitiesResponse | n
         'locales': ((value['locales'] as Array<any>).map(AppLocaleToJSON)),
         'providers': CapabilitiesResponseProvidersToJSON(value['providers']),
         'geo': CapabilitiesResponseGeoToJSON(value['geo']),
+        'details': CapabilitiesResponseDetailsToJSON(value['details']),
         'search': CapabilitiesResponseSearchToJSON(value['search']),
         'categories': ((value['categories'] as Array<any>).map(CategoryCapabilityToJSON)),
     };

@@ -9,11 +9,13 @@ import type { RestaurantDetailsResult, RestaurantSearchResult } from './types.ts
 
 test('capabilities serializer keeps zh-CN on the wire shape', () => {
   const payload = serializeCapabilitiesResponse() as {
+    details: { freshnessStates: string[] };
     categories: Array<{ name: Record<string, string> }>;
   };
 
   assert.equal(typeof payload.categories[0]?.name['zh-CN'], 'string');
   assert.equal('zh_CN' in (payload.categories[0]?.name ?? {}), false);
+  assert.deepEqual(payload.details.freshnessStates, ['live', 'partial_live', 'snapshot']);
 });
 
 test('search serializer emits providerStatuses and cursor pagination', () => {

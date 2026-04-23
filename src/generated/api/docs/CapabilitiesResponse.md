@@ -10,6 +10,7 @@ Name | Type
 `locales` | [Array&lt;AppLocale&gt;](AppLocale.md)
 `providers` | [CapabilitiesResponseProviders](CapabilitiesResponseProviders.md)
 `geo` | [CapabilitiesResponseGeo](CapabilitiesResponseGeo.md)
+`details` | [CapabilitiesResponseDetails](CapabilitiesResponseDetails.md)
 `search` | [CapabilitiesResponseSearch](CapabilitiesResponseSearch.md)
 `categories` | [Array&lt;CategoryCapability&gt;](CategoryCapability.md)
 
@@ -24,6 +25,7 @@ const example = {
   "locales": null,
   "providers": null,
   "geo": null,
+  "details": null,
   "search": null,
   "categories": null,
 } satisfies CapabilitiesResponse

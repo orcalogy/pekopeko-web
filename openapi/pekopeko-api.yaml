@@ -114,6 +114,84 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RestaurantDetailsResponse'
+              examples:
+                live:
+                  summary: Fresh details assembled from successful live provider refreshes.
+                  value:
+                    requestId: 9b5d8a21-1e2d-4483-b457-fcc5a484c4f5
+                    restaurant:
+                      restaurantKey: rid_live_123
+                      name: Good Spoon
+                      address: 1-2-3 Shinjuku, Tokyo
+                      lat: 35.6905
+                      lng: 139.7017
+                      rating: 4.3
+                      priceLevel: 2
+                      isOpenNow: true
+                      source: hybrid
+                      providerRefs:
+                        - provider: google
+                          providerId: place-live
+                        - provider: hotpepper
+                          providerId: J001LIVE
+                    freshness:
+                      state: live
+                    providerStatuses:
+                      - provider: hotpepper
+                        status: success
+                        rawResults: 1
+                      - provider: google
+                        status: success
+                        rawResults: 1
+                partialLive:
+                  summary: Detail response with some live refresh data and some stale fields.
+                  value:
+                    requestId: 3ca9ac83-2304-4c9d-81f2-a8e89d5dfe4a
+                    restaurant:
+                      restaurantKey: rid_partial_123
+                      name: Good Spoon
+                      address: 1-2-3 Shinjuku, Tokyo
+                      lat: 35.6905
+                      lng: 139.7017
+                      source: hybrid
+                      providerRefs:
+                        - provider: google
+                          providerId: place-partial
+                        - provider: hotpepper
+                          providerId: J001PARTIAL
+                    freshness:
+                      state: partial_live
+                    providerStatuses:
+                      - provider: hotpepper
+                        status: success
+                        rawResults: 1
+                      - provider: google
+                        status: failed
+                        error:
+                          code: upstream_error
+                          message: google detail refresh failed
+                snapshot:
+                  summary: Detail response served entirely from the last stored snapshot.
+                  value:
+                    requestId: 30ec5a2e-f9a3-4f94-bd6f-3d1ef3aa6b9a
+                    restaurant:
+                      restaurantKey: rid_snapshot_123
+                      name: Good Spoon
+                      address: 1-2-3 Shinjuku, Tokyo
+                      lat: 35.6905
+                      lng: 139.7017
+                      source: google
+                      providerRefs:
+                        - provider: google
+                          providerId: place-snapshot
+                    freshness:
+                      state: snapshot
+                    providerStatuses:
+                      - provider: google
+                        status: failed
+                        error:
+                          code: upstream_error
+                          message: google detail refresh failed
         '404':
           $ref: '#/components/responses/NotFound'
         '429':
@@ -206,6 +284,25 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ApiErrorResponse'
+          examples:
+            invalidField:
+              summary: Numeric field failed validation.
+              value:
+                error:
+                  code: invalid_argument
+                  message: radiusM must be between 100 and 10000
+                  requestId: 98a7b135-c933-4d11-a6af-a8efd8a4f3d4
+                  details:
+                    field: radiusM
+            invalidCursor:
+              summary: Pagination cursor was malformed or tampered with.
+              value:
+                error:
+                  code: invalid_argument
+                  message: pagination.cursor is invalid
+                  requestId: 4fbefa7a-a2f3-4c25-bad5-8ed2f23189eb
+                  details:
+                    field: pagination.cursor
     NotFound:
       description: Resource not found
       headers:
@@ -215,8 +312,31 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ApiErrorResponse'
+          examples:
+            movedRestaurant:
+              summary: Restaurant key now points to a superseded record.
+              value:
+                error:
+                  code: not_found
+                  message: Restaurant has moved
+                  requestId: 6d0c1a6e-0952-4f54-9b3e-0b66caedacb3
+                  details:
+                    restaurantKey: rid_old_123
+                    movedToRestaurantKey: rid_new_456
+            closedRestaurant:
+              summary: Restaurant key points to a permanently closed record.
+              value:
+                error:
+                  code: not_found
+                  message: Restaurant is closed
+                  requestId: b7d17a05-68dd-42b5-a410-243cb8fb78f5
+                  details:
+                    restaurantKey: rid_closed_123
+                    state: closed
     RateLimited:
-      description: Request was rate limited or upstream quota was exhausted
+      description: >
+        Request was rate limited or upstream quota was exhausted. In v1 this primarily reflects
+        upstream quota/rate-limit passthrough; local per-IP throttling is not guaranteed.
       headers:
         X-Request-Id:
           $ref: '#/components/headers/XRequestId'
@@ -226,6 +346,16 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ApiErrorResponse'
+          examples:
+            upstreamQuota:
+              summary: Upstream provider asked the client to retry later.
+              value:
+                error:
+                  code: quota_exhausted
+                  message: google photo quota exhausted
+                  requestId: 1a37dbfd-bd4a-4fd0-ad64-d238caa6ac0d
+                  details:
+                    provider: google
     ProviderUnavailable:
       description: Required upstream provider is unavailable
       headers:
@@ -235,6 +365,16 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ApiErrorResponse'
+          examples:
+            providerDown:
+              summary: No configured provider could satisfy the request.
+              value:
+                error:
+                  code: provider_unavailable
+                  message: hotpepper is unavailable
+                  requestId: 75fb2d8f-653f-4275-bcb5-dd1b24f1d6a0
+                  details:
+                    provider: hotpepper
     UpstreamError:
       description: Upstream provider failure
       headers:
@@ -279,6 +419,10 @@ components:
     ProviderMode:
       type: string
       enum: [auto, google, hotpepper, amap]
+      description: >
+        Search provider selection mode. `auto` is the recommended default. Explicit non-`auto`
+        overrides are supported in v1 for manual control and debugging, but they bypass normal
+        region-based provider selection and may return narrower result sets.
     GeoResolutionStrategy:
       type: string
       enum:
@@ -305,6 +449,11 @@ components:
     DetailFreshnessState:
       type: string
       enum: [live, partial_live, snapshot]
+      description: >
+        Indicates how fresh the detail payload is. `live` means the returned payload was assembled
+        from successful live provider refreshes. `partial_live` means at least one live provider
+        refresh succeeded but some detail data may still be stale or missing. `snapshot` means no
+        live refresh succeeded and the response was served from the last stored snapshot.
     RestaurantFeature:
       type: string
       enum:
@@ -405,7 +554,7 @@ components:
     CapabilitiesResponse:
       type: object
       additionalProperties: false
-      required: [version, locales, providers, geo, search, categories]
+      required: [version, locales, providers, geo, details, search, categories]
       properties:
         version:
           $ref: '#/components/schemas/ApiVersion'
@@ -437,6 +586,15 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/GeoResolutionConfidence'
+        details:
+          type: object
+          additionalProperties: false
+          required: [freshnessStates]
+          properties:
+            freshnessStates:
+              type: array
+              items:
+                $ref: '#/components/schemas/DetailFreshnessState'
         search:
           type: object
           additionalProperties: false
@@ -853,6 +1011,9 @@ components:
       type: object
       additionalProperties: false
       required: [state]
+      description: >
+        Freshness metadata for the detail payload. `snapshot` responses may contain stale registry
+        data and should not be cached beyond the immediate response.
       properties:
         state:
           $ref: '#/components/schemas/DetailFreshnessState'

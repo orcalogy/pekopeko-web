@@ -19,6 +19,9 @@ test('capabilities route exposes the search contract metadata', async () => {
   assert.equal(response.headers.get('cache-control'), CAPABILITIES_CACHE_CONTROL);
 
   const payload = (await response.json()) as {
+    details: {
+      freshnessStates: string[];
+    };
     search: {
       paginationMode: string;
       requiredFeatures: string[];
@@ -29,6 +32,7 @@ test('capabilities route exposes the search contract metadata', async () => {
   };
 
   assert.equal(payload.search.paginationMode, 'cursor');
+  assert.deepEqual(payload.details.freshnessStates, ['live', 'partial_live', 'snapshot']);
   assert.deepEqual(payload.search.sortBy, ['distance', 'rating']);
   assert.deepEqual(payload.search.sortDirections, ['asc', 'desc']);
   assert.equal(payload.search.requiredFeatures.includes('wifi'), true);

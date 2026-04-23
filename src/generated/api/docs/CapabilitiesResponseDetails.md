@@ -1,21 +1,22 @@
 
-# ProviderMode
+# CapabilitiesResponseDetails
 
-Search provider selection mode. `auto` is the recommended default. Explicit non-`auto` overrides are supported in v1 for manual control and debugging, but they bypass normal region-based provider selection and may return narrower result sets. 
 
 ## Properties
 
 Name | Type
 ------------ | -------------
+`freshnessStates` | [Array&lt;DetailFreshnessState&gt;](DetailFreshnessState.md)
 
 ## Example
 
 ```typescript
-import type { ProviderMode } from ''
+import type { CapabilitiesResponseDetails } from ''
 
 // TODO: Update the object below with actual values
 const example = {
-} satisfies ProviderMode
+  "freshnessStates": null,
+} satisfies CapabilitiesResponseDetails
 
 console.log(example)
 
@@ -24,7 +25,7 @@ const exampleJSON: string = JSON.stringify(example)
 console.log(exampleJSON)
 
 // Parse the JSON string back to an object
-const exampleParsed = JSON.parse(exampleJSON) as ProviderMode
+const exampleParsed = JSON.parse(exampleJSON) as CapabilitiesResponseDetails
 console.log(exampleParsed)
 ```
 

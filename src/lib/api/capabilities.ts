@@ -2,6 +2,7 @@ import { categories } from '../../data/categories.ts';
 import type { MapProviderType } from '../../types/restaurant.ts';
 import { locales } from '../app-locale.ts';
 import {
+  DETAIL_FRESHNESS_STATES,
   GEO_RESOLUTION_CONFIDENCES,
   GEO_RESOLUTION_STRATEGIES,
   PROVIDER_MODES,
@@ -58,6 +59,9 @@ export function getCapabilities() {
     geo: {
       strategies: [...GEO_RESOLUTION_STRATEGIES],
       confidences: [...GEO_RESOLUTION_CONFIDENCES],
+    },
+    details: {
+      freshnessStates: [...DETAIL_FRESHNESS_STATES],
     },
     search: {
       defaultRadiusM: DEFAULT_RADIUS_M,

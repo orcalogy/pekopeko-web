@@ -1,6 +1,7 @@
 import type { ApiVersion } from '../../generated/api/models/apiVersion.ts';
 import type { AppLocale as ContractAppLocale } from '../../generated/api/models/appLocale.ts';
 import type { CapabilitiesResponse } from '../../generated/api/models/capabilitiesResponse.ts';
+import type { CapabilitiesResponseDetails } from '../../generated/api/models/capabilitiesResponseDetails.ts';
 import type { CapabilitiesResponseGeo } from '../../generated/api/models/capabilitiesResponseGeo.ts';
 import type { CapabilitiesResponseSearch } from '../../generated/api/models/capabilitiesResponseSearch.ts';
 import type { CategoryCapability } from '../../generated/api/models/categoryCapability.ts';
@@ -52,6 +53,9 @@ export function serializeCapabilitiesResponse(): unknown {
       strategies: capabilities.geo.strategies as unknown as GeoResolutionStrategy[],
       confidences: capabilities.geo.confidences as unknown as GeoResolutionConfidence[],
     } satisfies CapabilitiesResponseGeo,
+    details: {
+      freshnessStates: capabilities.details.freshnessStates as unknown as DetailFreshnessState[],
+    } satisfies CapabilitiesResponseDetails,
     search: {
       defaultRadiusM: capabilities.search.defaultRadiusM,
       minRadiusM: capabilities.search.minRadiusM,

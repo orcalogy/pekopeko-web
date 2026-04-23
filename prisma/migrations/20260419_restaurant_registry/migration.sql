@@ -32,7 +32,8 @@ CREATE TABLE "restaurants" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "restaurants_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "restaurants_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "restaurants_no_self_supersession_check" CHECK ("id" IS DISTINCT FROM "supersededById")
 );
 
 -- CreateTable
@@ -54,7 +55,8 @@ CREATE TABLE "restaurant_aliases" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "restaurant_aliases_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "restaurant_aliases_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "restaurant_aliases_confidence_range_check" CHECK ("confidence" >= 0 AND "confidence" <= 1)
 );
 
 -- CreateIndex

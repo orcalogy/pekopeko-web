@@ -13,6 +13,7 @@
  */
 
 /**
+ * Search provider selection mode. `auto` is the recommended default. Explicit non-`auto` overrides are supported in v1 for manual control and debugging, but they bypass normal region-based provider selection and may return narrower result sets.
  * 
  * @export
  * @enum {string}
