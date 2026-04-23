@@ -14,6 +14,7 @@
     "openapi:generate:ts": "openapi-generator generate -i openapi/pekopeko-api.yaml -g typescript-fetch -c openapi/openapi-generator.typescript-fetch.yaml -o src/generated/api",
     "openapi:generate": "pnpm openapi:validate && pnpm openapi:generate:ts",
     "test:db:registry": "node --import ./scripts/register-ts-path-alias-loader.mjs --test src/lib/api/restaurant-registry.db.test.mts",
+    "test:db:search-session": "node --import ./scripts/register-ts-path-alias-loader.mjs --test src/lib/api/search-session.db.test.mts",
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy"

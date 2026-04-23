@@ -1,6 +1,7 @@
 
 # RestaurantSearchPaginationRequest
 
+Cursor-based pagination. `pageSize` may be set only on the first page. When `cursor` is present, omit all other search-definition fields and continue the previously created search session.
 
 ## Properties
 

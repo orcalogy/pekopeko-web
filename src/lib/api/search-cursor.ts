@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { AppLocale } from '../app-locale.ts';
 import { ApiRouteError } from './http.ts';
 import type {
@@ -8,8 +9,18 @@ import type {
   RestaurantFeature,
 } from './types.ts';
 
-interface SearchCursorPayload {
-  version: 1;
+const SEARCH_CURSOR_VERSION = 'v1';
+const SEARCH_CURSOR_TEST_SECRET = 'test-search-cursor-secret';
+const SEARCH_CURSOR_PRODUCTION_ENV_NAME = 'SEARCH_CURSOR_SECRET';
+
+export const SEARCH_SESSION_RESULTS_JSON_LIMIT_BYTES = 512 * 1024;
+export const SEARCH_SESSION_TOKEN_TTL_MS = 30 * 60 * 1000;
+
+const moduleSearchCursorSecret = validateSearchCursorSecretOnModuleLoad();
+
+let searchCursorSecretOverride: string | undefined;
+
+export interface SearchSessionSnapshot {
   locale: AppLocale;
   resolved: GeoResolution;
   appliedFilters: AppliedRestaurantFilters;
@@ -17,44 +28,101 @@ interface SearchCursorPayload {
   providerStatuses: ProviderExecutionStatus[];
   results: ApiRestaurantRecord[];
   pageSize: number;
+}
+
+export interface SearchCursorToken {
+  version: typeof SEARCH_CURSOR_VERSION;
+  sessionId: string;
   startIndex: number;
 }
 
-export function encodeSearchCursor(payload: SearchCursorPayload): string {
-  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+export function setSearchCursorSecretForTests(secret?: string) {
+  searchCursorSecretOverride = secret;
 }
 
-export function decodeSearchCursor(value: string): SearchCursorPayload {
-  let decoded: unknown;
+export function encodeSearchCursor(token: Omit<SearchCursorToken, 'version'>): string {
+  if (!token.sessionId || !Number.isSafeInteger(token.startIndex) || token.startIndex < 0) {
+    throw invalidCursorError();
+  }
+
+  const payload = `${SEARCH_CURSOR_VERSION}:${token.sessionId}:${token.startIndex}`;
+  const signature = createSignatureHex(payload);
+  return Buffer.from(`${payload}:${signature}`, 'utf8').toString('base64url');
+}
+
+export function decodeSearchCursor(value: string): SearchCursorToken {
+  let decoded: string;
 
   try {
-    decoded = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+    decoded = Buffer.from(value, 'base64url').toString('utf8');
   } catch {
     throw invalidCursorError();
   }
 
-  if (!isPlainObject(decoded)) {
+  const parts = decoded.split(':');
+  if (parts.length !== 4) {
     throw invalidCursorError();
   }
 
-  const version = readInteger(decoded.version);
-  const pageSize = readInteger(decoded.pageSize);
-  const startIndex = readInteger(decoded.startIndex);
-  const partialResults =
-    typeof decoded.partialResults === 'boolean' ? decoded.partialResults : null;
-  const locale = readLocale(decoded.locale);
-  const resolved = readGeoResolution(decoded.resolved);
-  const appliedFilters = readAppliedFilters(decoded.appliedFilters);
-  const providerStatuses = readProviderStatuses(decoded.providerStatuses);
-  const results = readResults(decoded.results);
+  const [version, sessionId, startIndexValue, signatureHex] = parts;
+  if (version !== SEARCH_CURSOR_VERSION || !sessionId || !isLowercaseHex(signatureHex)) {
+    throw invalidCursorError();
+  }
+
+  const startIndex = readIntegerFromString(startIndexValue);
+  if (startIndex == null || startIndex < 0) {
+    throw invalidCursorError();
+  }
+
+  const payload = `${version}:${sessionId}:${startIndex}`;
+  const expectedSignatureHex = createSignatureHex(payload);
+
+  if (!signaturesMatch(signatureHex, expectedSignatureHex)) {
+    throw invalidCursorError();
+  }
+
+  return {
+    version: SEARCH_CURSOR_VERSION,
+    sessionId,
+    startIndex,
+  };
+}
+
+export function createSearchSessionSnapshot(params: SearchSessionSnapshot): SearchSessionSnapshot {
+  return {
+    locale: params.locale,
+    resolved: params.resolved,
+    appliedFilters: params.appliedFilters,
+    partialResults: params.partialResults,
+    providerStatuses: params.providerStatuses,
+    results: params.results,
+    pageSize: params.pageSize,
+  };
+}
+
+export function parseStoredSearchSessionSnapshot(params: {
+  locale: unknown;
+  pageSize: unknown;
+  resolvedJson: unknown;
+  appliedFiltersJson: unknown;
+  partialResults: unknown;
+  providerStatusesJson: unknown;
+  resultsJson: unknown;
+}): SearchSessionSnapshot {
+  const pageSize =
+    typeof params.pageSize === 'number' && Number.isInteger(params.pageSize)
+      ? params.pageSize
+      : null;
+  const partialResults = typeof params.partialResults === 'boolean' ? params.partialResults : null;
+  const locale = readLocale(params.locale);
+  const resolved = readGeoResolution(params.resolvedJson);
+  const appliedFilters = readAppliedFilters(params.appliedFiltersJson);
+  const providerStatuses = readProviderStatuses(params.providerStatusesJson);
+  const results = readResults(params.resultsJson);
 
   if (
-    version !== 1 ||
     pageSize == null ||
     pageSize < 1 ||
-    startIndex == null ||
-    startIndex < 0 ||
-    startIndex > results.length ||
     partialResults == null ||
     !locale ||
     !resolved ||
@@ -64,7 +132,6 @@ export function decodeSearchCursor(value: string): SearchCursorPayload {
   }
 
   return {
-    version,
     locale,
     resolved,
     appliedFilters,
@@ -72,31 +139,51 @@ export function decodeSearchCursor(value: string): SearchCursorPayload {
     providerStatuses,
     results,
     pageSize,
-    startIndex,
   };
 }
 
-export function createSearchCursorPayload(params: {
-  locale: AppLocale;
-  resolved: GeoResolution;
-  appliedFilters: AppliedRestaurantFilters;
-  partialResults: boolean;
-  providerStatuses: ProviderExecutionStatus[];
-  results: ApiRestaurantRecord[];
-  pageSize: number;
-  startIndex: number;
-}): SearchCursorPayload {
-  return {
-    version: 1,
-    locale: params.locale,
-    resolved: params.resolved,
-    appliedFilters: params.appliedFilters,
-    partialResults: params.partialResults,
-    providerStatuses: params.providerStatuses,
-    results: params.results,
-    pageSize: params.pageSize,
-    startIndex: params.startIndex,
-  };
+function validateSearchCursorSecretOnModuleLoad(): string | undefined {
+  const secret = process.env[SEARCH_CURSOR_PRODUCTION_ENV_NAME]?.trim();
+  if (secret) {
+    return secret;
+  }
+
+  if (process.env.NODE_ENV === 'production' || process.env.VERCEL === '1') {
+    throw new Error(`${SEARCH_CURSOR_PRODUCTION_ENV_NAME} must be configured`);
+  }
+
+  return undefined;
+}
+
+function getSearchCursorSecret(): string {
+  const runtimeSecret =
+    searchCursorSecretOverride ??
+    process.env[SEARCH_CURSOR_PRODUCTION_ENV_NAME]?.trim() ??
+    moduleSearchCursorSecret ??
+    SEARCH_CURSOR_TEST_SECRET;
+
+  if (!runtimeSecret) {
+    throw new Error(`${SEARCH_CURSOR_PRODUCTION_ENV_NAME} must be configured`);
+  }
+
+  return runtimeSecret;
+}
+
+function createSignatureHex(payload: string): string {
+  return createHmac('sha256', getSearchCursorSecret()).update(payload).digest('hex');
+}
+
+function signaturesMatch(actualHex: string, expectedHex: string): boolean {
+  try {
+    const actual = Buffer.from(actualHex, 'hex');
+    const expected = Buffer.from(expectedHex, 'hex');
+    if (actual.length !== expected.length) {
+      return false;
+    }
+    return timingSafeEqual(actual, expected);
+  } catch {
+    return false;
+  }
 }
 
 function invalidCursorError(): ApiRouteError {
@@ -112,8 +199,17 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function readInteger(value: unknown): number | null {
-  return typeof value === 'number' && Number.isInteger(value) ? value : null;
+function readIntegerFromString(value: string): number | null {
+  if (!/^\d+$/.test(value)) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+function isLowercaseHex(value: string): boolean {
+  return /^[0-9a-f]+$/.test(value);
 }
 
 function readLocale(value: unknown): AppLocale | null {
@@ -276,12 +372,10 @@ function readResults(value: unknown): ApiRestaurantRecord[] {
       !address ||
       lat == null ||
       lng == null ||
-      distance == null
+      distance == null ||
+      !source ||
+      !providerRefs
     ) {
-      throw invalidCursorError();
-    }
-
-    if (!source || !providerRefs) {
       throw invalidCursorError();
     }
 

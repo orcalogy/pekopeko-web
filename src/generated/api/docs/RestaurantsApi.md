@@ -161,6 +161,8 @@ No authorization required
 
 Search nearby restaurants
 
+First-page requests define the search with location, filters, and optional page size. Follow-up requests must send only &#x60;pagination.cursor&#x60;, which is a signed, short-lived continuation token for the stored ordered result set.
+
 ### Example
 
 ```ts

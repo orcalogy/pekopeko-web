@@ -14,18 +14,20 @@
 
 import { mapValues } from '../runtime.ts';
 /**
+ * Cursor-based pagination. `pageSize` may be set only on the first page. When `cursor` is present, omit all other search-definition fields and continue the previously created search session.
  * 
  * @export
  * @interface RestaurantSearchPaginationRequest
  */
 export interface RestaurantSearchPaginationRequest {
     /**
-     * 
+     * Allowed only on first-page requests when `pagination.cursor` is omitted.
      * @type {number}
      * @memberof RestaurantSearchPaginationRequest
      */
     pageSize?: number;
     /**
+     * Signed, short-lived continuation token returned by the previous page. When this field is present, do not send `locale`, `provider`, `location`, `radiusM`, `query`, `filters`, `sort`, or `pagination.pageSize`.
      * 
      * @type {string}
      * @memberof RestaurantSearchPaginationRequest

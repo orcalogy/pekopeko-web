@@ -95,6 +95,10 @@ export function parseRestaurantSearchRequest(body: unknown): RestaurantSearchInp
     });
   }
 
+  if (cursor) {
+    assertCursorOnlySearchRequest(record, paginationRecord);
+  }
+
   if (!locationRecord && !cursor) {
     throw new ApiRouteError({
       status: 400,
@@ -160,6 +164,38 @@ export function parseRestaurantSearchRequest(body: unknown): RestaurantSearchInp
             cursor: cursor ?? undefined,
           },
   };
+}
+
+function assertCursorOnlySearchRequest(
+  record: Record<string, unknown>,
+  paginationRecord: Record<string, unknown> | undefined,
+) {
+  const unsupportedFields = [
+    ...(Object.hasOwn(record, 'locale') ? ['locale'] : []),
+    ...(Object.hasOwn(record, 'provider') ? ['provider'] : []),
+    ...(Object.hasOwn(record, 'location') ? ['location'] : []),
+    ...(Object.hasOwn(record, 'radiusM') ? ['radiusM'] : []),
+    ...(Object.hasOwn(record, 'query') ? ['query'] : []),
+    ...(Object.hasOwn(record, 'filters') ? ['filters'] : []),
+    ...(Object.hasOwn(record, 'sort') ? ['sort'] : []),
+    ...(paginationRecord && Object.hasOwn(paginationRecord, 'pageSize')
+      ? ['pagination.pageSize']
+      : []),
+  ];
+
+  if (unsupportedFields.length === 0) {
+    return;
+  }
+
+  throw new ApiRouteError({
+    status: 400,
+    code: 'invalid_argument',
+    message: 'body contains unsupported fields',
+    details: {
+      field: 'body',
+      unsupportedFields,
+    },
+  });
 }
 
 function expectObject(value: unknown, field: string): Record<string, unknown> {

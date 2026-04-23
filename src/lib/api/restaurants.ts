@@ -33,7 +33,16 @@ import {
   resolveRestaurantIdentity,
   type StoredRestaurantRecord,
 } from './restaurant-registry';
-import { createSearchCursorPayload, decodeSearchCursor, encodeSearchCursor } from './search-cursor';
+import {
+  createSearchSessionSnapshot,
+  encodeSearchCursor,
+  type SearchSessionSnapshot,
+} from './search-cursor';
+import {
+  createSearchSession,
+  loadSearchSessionFromCursor,
+  maybeCleanupExpiredSearchSessions,
+} from './search-session.ts';
 import type {
   ApiProviderRef,
   ApiRestaurantRecord,
@@ -62,13 +71,11 @@ export async function searchRestaurants(params: {
   const cursorValue = params.input.pagination?.cursor ?? undefined;
 
   if (cursorValue) {
-    const cursor = decodeSearchCursor(cursorValue);
-    const pageSize = normalizePageSize(params.input.pagination?.pageSize ?? cursor.pageSize);
+    const loaded = await loadSearchSessionFromCursor(cursorValue);
     return buildSearchResultPage({
-      cursor: {
-        ...cursor,
-        pageSize,
-      },
+      snapshot: loaded.snapshot,
+      startIndex: loaded.startIndex,
+      sessionId: loaded.sessionId,
     });
   }
 
@@ -139,19 +146,26 @@ export async function searchRestaurants(params: {
     sortDirection,
   };
 
+  const snapshot = createSearchSessionSnapshot({
+    locale,
+    resolved,
+    appliedFilters,
+    partialResults:
+      providerResults.providerStatuses.some((status) => status.status === 'failed') &&
+      providerResults.providerStatuses.some((status) => status.status === 'success'),
+    providerStatuses: providerResults.providerStatuses,
+    results: allResults,
+    pageSize,
+  });
+
+  const sessionId = allResults.length > pageSize ? await createSearchSession(snapshot) : null;
+
+  await maybeCleanupExpiredSearchSessions();
+
   return buildSearchResultPage({
-    cursor: createSearchCursorPayload({
-      locale,
-      resolved,
-      appliedFilters,
-      partialResults:
-        providerResults.providerStatuses.some((status) => status.status === 'failed') &&
-        providerResults.providerStatuses.some((status) => status.status === 'success'),
-      providerStatuses: providerResults.providerStatuses,
-      results: allResults,
-      pageSize,
-      startIndex: 0,
-    }),
+    snapshot,
+    startIndex: 0,
+    sessionId,
   });
 }
 
@@ -827,32 +841,34 @@ function normalizeDetailRefreshError(error: unknown): ApiRouteError {
 }
 
 function buildSearchResultPage(params: {
-  cursor: ReturnType<typeof createSearchCursorPayload>;
+  snapshot: SearchSessionSnapshot;
+  startIndex: number;
+  sessionId: string | null;
 }): RestaurantSearchResult {
-  const { cursor } = params;
-  const endIndex = Math.min(cursor.startIndex + cursor.pageSize, cursor.results.length);
-  const pageResults = cursor.results.slice(cursor.startIndex, endIndex);
+  const { snapshot } = params;
+  const endIndex = Math.min(params.startIndex + snapshot.pageSize, snapshot.results.length);
+  const pageResults = snapshot.results.slice(params.startIndex, endIndex);
   const nextCursor =
-    endIndex < cursor.results.length
+    params.sessionId && endIndex < snapshot.results.length
       ? encodeSearchCursor({
-          ...cursor,
+          sessionId: params.sessionId,
           startIndex: endIndex,
         })
       : null;
 
   return {
-    locale: cursor.locale,
-    resolved: cursor.resolved,
-    appliedFilters: cursor.appliedFilters,
-    partialResults: cursor.partialResults,
-    providerStatuses: cursor.providerStatuses,
+    locale: snapshot.locale,
+    resolved: snapshot.resolved,
+    appliedFilters: snapshot.appliedFilters,
+    partialResults: snapshot.partialResults,
+    providerStatuses: snapshot.providerStatuses,
     results: pageResults,
     pagination: {
       mode: 'cursor',
-      pageSize: cursor.pageSize,
+      pageSize: snapshot.pageSize,
       nextCursor,
       returned: pageResults.length,
-      total: cursor.results.length,
+      total: snapshot.results.length,
     },
   };
 }

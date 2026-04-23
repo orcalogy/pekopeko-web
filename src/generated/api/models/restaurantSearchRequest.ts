@@ -64,6 +64,7 @@ import {
 } from './restaurantSearchQuery.ts';
 
 /**
+ * First-page requests define the search. Follow-up requests must use only `pagination.cursor` and may not redefine the search.
  * 
  * @export
  * @interface RestaurantSearchRequest

@@ -69,6 +69,10 @@ paths:
     post:
       operationId: searchRestaurants
       summary: Search nearby restaurants
+      description: >
+        First-page requests define the search with location, filters, and optional page size.
+        Follow-up requests must send only `pagination.cursor`, which is a signed, short-lived
+        continuation token for the stored ordered result set.
       tags: [restaurants]
       requestBody:
         required: true
@@ -301,6 +305,24 @@ components:
                   code: invalid_argument
                   message: pagination.cursor is invalid
                   requestId: 4fbefa7a-a2f3-4c25-bad5-8ed2f23189eb
+                  details:
+                    field: pagination.cursor
+            expiredCursor:
+              summary: Pagination cursor expired before the next page was requested.
+              value:
+                error:
+                  code: invalid_argument
+                  message: pagination.cursor is invalid
+                  requestId: 5d808b65-3864-4cc7-8e45-98baf454d5ff
+                  details:
+                    field: pagination.cursor
+            tamperedCursor:
+              summary: Pagination cursor was modified by the client and no longer verifies.
+              value:
+                error:
+                  code: invalid_argument
+                  message: pagination.cursor is invalid
+                  requestId: 0b3bdf07-d3d8-4477-bf7d-9de4f14e89d9
                   details:
                     field: pagination.cursor
     NotFound:
@@ -873,16 +895,28 @@ components:
     RestaurantSearchPaginationRequest:
       type: object
       additionalProperties: false
+      description: >
+        Cursor-based pagination. `pageSize` may be set only on the first page. When `cursor` is
+        present, omit all other search-definition fields and continue the previously created search
+        session.
       properties:
         pageSize:
           type: integer
           minimum: 1
           maximum: 40
+          description: Allowed only on first-page requests when `pagination.cursor` is omitted.
         cursor:
           type: string
+          description: >
+            Signed, short-lived continuation token returned by the previous page. When this field
+            is present, do not send `locale`, `provider`, `location`, `radiusM`, `query`,
+            `filters`, `sort`, or `pagination.pageSize`.
     RestaurantSearchRequest:
       type: object
       additionalProperties: false
+      description: >
+        First-page requests define the search. Follow-up requests must use only
+        `pagination.cursor` and may not redefine the search.
       properties:
         locale:
           $ref: '#/components/schemas/AppLocale'

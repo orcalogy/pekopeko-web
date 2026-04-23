@@ -81,3 +81,19 @@ model RestaurantAlias {
   @@index([restaurantId])
   @@map("restaurant_aliases")
 }
+
+model SearchSession {
+  id                 String   @id @default(cuid())
+  createdAt          DateTime @default(now())
+  expiresAt          DateTime
+  locale             String
+  pageSize           Int
+  resolvedJson       Json
+  appliedFiltersJson Json
+  partialResults     Boolean
+  providerStatusesJson Json
+  resultsJson        Json
+
+  @@index([expiresAt])
+  @@map("search_sessions")
+}

@@ -1,14 +1,40 @@
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import test from 'node:test';
 import { ApiRouteError } from './http.ts';
 import {
-  createSearchCursorPayload,
+  createSearchSessionSnapshot,
   decodeSearchCursor,
   encodeSearchCursor,
+  parseStoredSearchSessionSnapshot,
+  setSearchCursorSecretForTests,
 } from './search-cursor.ts';
 
-test('search cursor round-trips ordered results and pagination state', () => {
-  const cursor = createSearchCursorPayload({
+setSearchCursorSecretForTests('search-cursor-test-secret');
+
+function encodeRawCursorPayload(payload: string): string {
+  return Buffer.from(payload, 'utf8').toString('base64url');
+}
+
+function signCursorPayload(payload: string): string {
+  return createHmac('sha256', 'search-cursor-test-secret').update(payload).digest('hex');
+}
+
+test('search cursor round-trips signed session tokens', () => {
+  const cursor = encodeSearchCursor({
+    sessionId: 'sess_123',
+    startIndex: 20,
+  });
+
+  const decoded = decodeSearchCursor(cursor);
+
+  assert.equal(decoded.sessionId, 'sess_123');
+  assert.equal(decoded.startIndex, 20);
+  assert.equal(decoded.version, 'v1');
+});
+
+test('stored search-session snapshots round-trip typed pagination state', () => {
+  const snapshot = createSearchSessionSnapshot({
     locale: 'ja',
     resolved: {
       country: 'JP',
@@ -48,13 +74,19 @@ test('search cursor round-trips ordered results and pagination state', () => {
       },
     ],
     pageSize: 20,
-    startIndex: 0,
   });
 
-  const decoded = decodeSearchCursor(encodeSearchCursor(cursor));
+  const decoded = parseStoredSearchSessionSnapshot({
+    locale: snapshot.locale,
+    pageSize: snapshot.pageSize,
+    resolvedJson: snapshot.resolved,
+    appliedFiltersJson: snapshot.appliedFilters,
+    partialResults: snapshot.partialResults,
+    providerStatusesJson: snapshot.providerStatuses,
+    resultsJson: snapshot.results,
+  });
 
   assert.equal(decoded.pageSize, 20);
-  assert.equal(decoded.startIndex, 0);
   assert.equal(decoded.results[0]?.restaurantKey, 'rid_123');
   assert.equal(decoded.providerStatuses[0]?.provider, 'hotpepper');
 });
@@ -66,6 +98,67 @@ test('search cursor rejects malformed payloads', () => {
       assert.ok(error instanceof ApiRouteError);
       assert.equal(error.code, 'invalid_argument');
       assert.equal(error.details?.field, 'pagination.cursor');
+      return true;
+    },
+  );
+});
+
+test('search cursor rejects tampered signatures', () => {
+  const cursor = encodeSearchCursor({
+    sessionId: 'sess_123',
+    startIndex: 20,
+  });
+  const decoded = Buffer.from(cursor, 'base64url').toString('utf8');
+  const tampered = Buffer.from(decoded.replace(':20:', ':40:'), 'utf8').toString('base64url');
+
+  assert.throws(
+    () => decodeSearchCursor(tampered),
+    (error: unknown) => {
+      assert.ok(error instanceof ApiRouteError);
+      assert.equal(error.code, 'invalid_argument');
+      assert.equal(error.details?.field, 'pagination.cursor');
+      return true;
+    },
+  );
+});
+
+test('search cursor rejects unsupported versions', () => {
+  const payload = 'v2:sess_123:20';
+  const invalidVersion = encodeRawCursorPayload(`${payload}:${signCursorPayload(payload)}`);
+
+  assert.throws(
+    () => decodeSearchCursor(invalidVersion),
+    (error: unknown) => {
+      assert.ok(error instanceof ApiRouteError);
+      assert.equal(error.code, 'invalid_argument');
+      return true;
+    },
+  );
+});
+
+test('search cursor rejects negative start indexes', () => {
+  const payload = 'v1:sess_123:-1';
+  const encoded = encodeRawCursorPayload(`${payload}:${signCursorPayload(payload)}`);
+
+  assert.throws(
+    () => decodeSearchCursor(encoded),
+    (error: unknown) => {
+      assert.ok(error instanceof ApiRouteError);
+      assert.equal(error.code, 'invalid_argument');
+      return true;
+    },
+  );
+});
+
+test('search cursor rejects non-integer start indexes', () => {
+  const payload = 'v1:sess_123:20.5';
+  const encoded = encodeRawCursorPayload(`${payload}:${signCursorPayload(payload)}`);
+
+  assert.throws(
+    () => decodeSearchCursor(encoded),
+    (error: unknown) => {
+      assert.ok(error instanceof ApiRouteError);
+      assert.equal(error.code, 'invalid_argument');
       return true;
     },
   );

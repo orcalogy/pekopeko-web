@@ -75,6 +75,47 @@ test('parses cursor-only restaurant search requests', () => {
   });
 });
 
+test('rejects search-definition fields when pagination.cursor is present', () => {
+  assert.throws(
+    () =>
+      parseRestaurantSearchRequest({
+        locale: 'ja',
+        location: { lat: 35.6895, lng: 139.6917 },
+        filters: {
+          openNow: true,
+        },
+        pagination: {
+          cursor: 'cursor-token',
+          pageSize: 20,
+        },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /unsupported fields/);
+      return true;
+    },
+  );
+});
+
+test('rejects even null search-definition fields when pagination.cursor is present', () => {
+  assert.throws(
+    () =>
+      parseRestaurantSearchRequest({
+        location: null,
+        sort: null,
+        pagination: {
+          cursor: 'cursor-token',
+          pageSize: null,
+        },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /unsupported fields/);
+      return true;
+    },
+  );
+});
+
 test('rejects unsupported request fields', () => {
   assert.throws(
     () =>
