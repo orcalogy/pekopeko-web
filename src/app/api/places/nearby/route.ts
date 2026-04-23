@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { createRequestId, jsonResponse, legacyErrorResponse } from '@/lib/api/http';
-import { searchRestaurants, toCompatibilityRestaurant } from '@/lib/api/restaurants';
+import { searchLegacyNearbyRestaurants } from '@/lib/api/restaurants';
 import type { RestaurantSearchInput } from '@/lib/api/types';
 
 export async function GET(request: NextRequest) {
@@ -38,12 +38,12 @@ export async function GET(request: NextRequest) {
       },
     };
 
-    const result = await searchRestaurants({
+    const results = await searchLegacyNearbyRestaurants({
       input,
       acceptLanguage: request.headers.get('accept-language'),
     });
 
-    return jsonResponse(result.results.map(toCompatibilityRestaurant), {
+    return jsonResponse(results, {
       requestId,
       cacheControl: 'no-store',
     });

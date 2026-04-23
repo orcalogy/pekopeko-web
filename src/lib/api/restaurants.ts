@@ -81,6 +81,33 @@ export async function searchRestaurants(params: {
     });
   }
 
+  const snapshot = await createInitialRestaurantSearchSnapshot(params);
+  const sessionId =
+    snapshot.results.length > snapshot.pageSize
+      ? await persistSearchSessionBestEffort(snapshot)
+      : null;
+
+  await maybeCleanupExpiredSearchSessions();
+
+  return buildSearchResultPage({
+    snapshot,
+    startIndex: 0,
+    sessionId,
+  });
+}
+
+export async function searchLegacyNearbyRestaurants(params: {
+  input: RestaurantSearchInput;
+  acceptLanguage: string | null;
+}): Promise<Restaurant[]> {
+  const snapshot = await createInitialRestaurantSearchSnapshot(params);
+  return snapshot.results;
+}
+
+async function createInitialRestaurantSearchSnapshot(params: {
+  input: RestaurantSearchInput;
+  acceptLanguage: string | null;
+}): Promise<SearchSessionSnapshot> {
   const location = params.input.location;
   if (!location) {
     throw new ApiRouteError({
@@ -147,7 +174,7 @@ export async function searchRestaurants(params: {
     sortDirection,
   };
 
-  const snapshot = createSearchSessionSnapshot({
+  return createSearchSessionSnapshot({
     locale,
     resolved,
     appliedFilters,
@@ -157,17 +184,6 @@ export async function searchRestaurants(params: {
     providerStatuses: providerResults.providerStatuses,
     results: normalized,
     pageSize,
-  });
-
-  const sessionId =
-    normalized.length > pageSize ? await persistSearchSessionBestEffort(snapshot) : null;
-
-  await maybeCleanupExpiredSearchSessions();
-
-  return buildSearchResultPage({
-    snapshot,
-    startIndex: 0,
-    sessionId,
   });
 }
 
