@@ -137,7 +137,6 @@ export async function searchRestaurants(params: {
   });
   normalized = sortRestaurants(normalized, sortBy, sortDirection);
 
-  const allResults = await enrichRestaurantsForApi(normalized);
   const appliedFilters: AppliedRestaurantFilters = {
     openNow,
     ...(minRating != null && minRating > 0 ? { minRating } : {}),
@@ -156,12 +155,12 @@ export async function searchRestaurants(params: {
       providerResults.providerStatuses.some((status) => status.status === 'failed') &&
       providerResults.providerStatuses.some((status) => status.status === 'success'),
     providerStatuses: providerResults.providerStatuses,
-    results: allResults,
+    results: normalized,
     pageSize,
   });
 
   const sessionId =
-    allResults.length > pageSize ? await persistSearchSessionBestEffort(snapshot) : null;
+    normalized.length > pageSize ? await persistSearchSessionBestEffort(snapshot) : null;
 
   await maybeCleanupExpiredSearchSessions();
 
@@ -880,14 +879,16 @@ function normalizeDetailRefreshError(error: unknown): ApiRouteError {
       });
 }
 
-function buildSearchResultPage(params: {
+async function buildSearchResultPage(params: {
   snapshot: SearchSessionSnapshot;
   startIndex: number;
   sessionId: string | null;
-}): RestaurantSearchResult {
+}): Promise<RestaurantSearchResult> {
   const { snapshot } = params;
   const endIndex = Math.min(params.startIndex + snapshot.pageSize, snapshot.results.length);
-  const pageResults = snapshot.results.slice(params.startIndex, endIndex);
+  const pageResults = await enrichRestaurantsForApi(
+    snapshot.results.slice(params.startIndex, endIndex),
+  );
   const nextCursor =
     params.sessionId && endIndex < snapshot.results.length
       ? encodeSearchCursor({

@@ -1,8 +1,8 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import type { Restaurant } from '../../types/restaurant.ts';
 import type { AppLocale } from '../app-locale.ts';
 import { ApiRouteError } from './http.ts';
 import type {
-  ApiRestaurantRecord,
   AppliedRestaurantFilters,
   GeoResolution,
   ProviderExecutionStatus,
@@ -26,7 +26,7 @@ export interface SearchSessionSnapshot {
   appliedFilters: AppliedRestaurantFilters;
   partialResults: boolean;
   providerStatuses: ProviderExecutionStatus[];
-  results: ApiRestaurantRecord[];
+  results: Restaurant[];
   pageSize: number;
 }
 
@@ -322,7 +322,7 @@ function readProviderStatuses(value: unknown): ProviderExecutionStatus[] {
   });
 }
 
-function readResults(value: unknown): ApiRestaurantRecord[] {
+function readResults(value: unknown): Restaurant[] {
   if (!Array.isArray(value)) {
     throw invalidCursorError();
   }
@@ -333,62 +333,64 @@ function readResults(value: unknown): ApiRestaurantRecord[] {
     }
 
     const id = typeof entry.id === 'string' ? entry.id : null;
-    const restaurantKey = typeof entry.restaurantKey === 'string' ? entry.restaurantKey : null;
     const name = typeof entry.name === 'string' ? entry.name : null;
     const address = typeof entry.address === 'string' ? entry.address : null;
     const lat = typeof entry.lat === 'number' ? entry.lat : null;
     const lng = typeof entry.lng === 'number' ? entry.lng : null;
     const distance = typeof entry.distance === 'number' ? entry.distance : null;
     const source =
-      entry.source === 'google' ||
-      entry.source === 'hotpepper' ||
-      entry.source === 'amap' ||
-      entry.source === 'hybrid'
-        ? entry.source
-        : null;
+      entry.source == null
+        ? undefined
+        : entry.source === 'google' ||
+            entry.source === 'hotpepper' ||
+            entry.source === 'amap' ||
+            entry.source === 'hybrid'
+          ? entry.source
+          : null;
     const providerRefs =
-      Array.isArray(entry.providerRefs) &&
-      entry.providerRefs.every(
-        (ref) =>
-          isPlainObject(ref) &&
-          (ref.provider === 'google' || ref.provider === 'hotpepper' || ref.provider === 'amap') &&
-          typeof ref.providerId === 'string',
-      )
-        ? (
-            entry.providerRefs as Array<{
-              provider: 'google' | 'hotpepper' | 'amap';
-              providerId: string;
-            }>
-          ).map((ref) => ({
-            provider: ref.provider,
-            providerId: ref.providerId,
-          }))
-        : null;
+      entry.providerRefs == null
+        ? undefined
+        : Array.isArray(entry.providerRefs) &&
+            entry.providerRefs.every(
+              (ref) =>
+                isPlainObject(ref) &&
+                (ref.provider === 'google' ||
+                  ref.provider === 'hotpepper' ||
+                  ref.provider === 'amap') &&
+                typeof ref.providerId === 'string',
+            )
+          ? (
+              entry.providerRefs as Array<{
+                provider: 'google' | 'hotpepper' | 'amap';
+                providerId: string;
+              }>
+            ).map((ref) => ({
+              provider: ref.provider,
+              providerId: ref.providerId,
+            }))
+          : null;
 
     if (
       !id ||
-      !restaurantKey ||
       !name ||
       !address ||
       lat == null ||
       lng == null ||
       distance == null ||
-      !source ||
-      !providerRefs
+      source === null ||
+      providerRefs === null
     ) {
       throw invalidCursorError();
     }
 
     return {
       id,
-      restaurantKey,
       name,
       address,
       lat,
       lng,
       distance,
-      source,
-      providerRefs,
+      ...(typeof entry.restaurantKey === 'string' ? { restaurantKey: entry.restaurantKey } : {}),
       ...(typeof entry.rating === 'number' ? { rating: entry.rating } : {}),
       ...(typeof entry.priceLevel === 'number' ? { priceLevel: entry.priceLevel } : {}),
       ...(typeof entry.isOpenNow === 'boolean' ? { isOpenNow: entry.isOpenNow } : {}),
@@ -411,7 +413,10 @@ function readResults(value: unknown): ApiRestaurantRecord[] {
         : {}),
       ...(typeof entry.menuUrl === 'string' ? { menuUrl: entry.menuUrl } : {}),
       ...(typeof entry.websiteUrl === 'string' ? { websiteUrl: entry.websiteUrl } : {}),
-    } satisfies ApiRestaurantRecord;
+      ...(source ? { source } : {}),
+      ...(providerRefs ? { providerRefs } : {}),
+      ...(typeof entry.photoRef === 'string' ? { photoRef: entry.photoRef } : {}),
+    } satisfies Restaurant;
   });
 }
 

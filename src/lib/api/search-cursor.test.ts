@@ -91,6 +91,63 @@ test('stored search-session snapshots round-trip typed pagination state', () => 
   assert.equal(decoded.providerStatuses[0]?.provider, 'hotpepper');
 });
 
+test('stored search-session snapshots preserve raw provider results before identity enrichment', () => {
+  const snapshot = createSearchSessionSnapshot({
+    locale: 'en',
+    resolved: {
+      country: 'JP',
+      provider: 'google',
+      providerPlan: ['google'],
+      strategy: 'google_global',
+      confidence: 'high',
+    },
+    appliedFilters: {
+      openNow: false,
+      requiredFeatures: [],
+      sortBy: 'distance',
+      sortDirection: 'asc',
+    },
+    partialResults: false,
+    providerStatuses: [
+      {
+        provider: 'google',
+        status: 'success',
+        rawResults: 1,
+      },
+    ],
+    results: [
+      {
+        id: 'place-raw-1',
+        name: 'Raw Spoon',
+        address: 'Tokyo',
+        lat: 35.68,
+        lng: 139.69,
+        distance: 123,
+        source: 'google',
+        providerRefs: [{ provider: 'google', providerId: 'place-raw-1' }],
+        photoRef: 'places/place-raw-1/photos/photo-1',
+      },
+    ],
+    pageSize: 20,
+  });
+
+  const decoded = parseStoredSearchSessionSnapshot({
+    locale: snapshot.locale,
+    pageSize: snapshot.pageSize,
+    resolvedJson: snapshot.resolved,
+    appliedFiltersJson: snapshot.appliedFilters,
+    partialResults: snapshot.partialResults,
+    providerStatusesJson: snapshot.providerStatuses,
+    resultsJson: snapshot.results,
+  });
+
+  assert.equal(decoded.results[0]?.restaurantKey, undefined);
+  assert.equal(decoded.results[0]?.photoRef, 'places/place-raw-1/photos/photo-1');
+  assert.deepEqual(decoded.results[0]?.providerRefs, [
+    { provider: 'google', providerId: 'place-raw-1' },
+  ]);
+});
+
 test('search cursor rejects malformed payloads', () => {
   assert.throws(
     () => decodeSearchCursor('not-a-cursor'),
