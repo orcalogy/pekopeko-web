@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type { Restaurant } from '@/types/restaurant';
 import { ApiRouteError } from './http.ts';
-import { persistSearchSessionBestEffort } from './restaurants.ts';
+import { enrichRestaurantsForApi, persistSearchSessionBestEffort } from './restaurants.ts';
 import type { SearchSessionSnapshot } from './search-cursor.ts';
 
 const snapshot = {
@@ -67,3 +68,50 @@ test('persistSearchSessionBestEffort falls back to null when persistence fails',
     console.error = originalConsoleError;
   }
 });
+
+test('enrichRestaurantsForApi limits concurrency and preserves result order', async () => {
+  const restaurants = Array.from({ length: 5 }, (_, index) => makeRestaurant(index));
+  let active = 0;
+  let maxActive = 0;
+
+  const enriched = await enrichRestaurantsForApi(
+    restaurants,
+    async (restaurant) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+
+      await new Promise((resolve) => setTimeout(resolve, 5));
+
+      active -= 1;
+      return {
+        ...restaurant,
+        restaurantKey: `rid_${restaurant.id}`,
+        providerRefs: restaurant.providerRefs ?? [],
+      };
+    },
+    2,
+  );
+
+  assert.equal(maxActive, 2);
+  assert.deepEqual(
+    enriched.map((restaurant) => restaurant.id),
+    restaurants.map((restaurant) => restaurant.id),
+  );
+  assert.deepEqual(
+    enriched.map((restaurant) => restaurant.restaurantKey),
+    restaurants.map((restaurant) => `rid_${restaurant.id}`),
+  );
+});
+
+function makeRestaurant(index: number): Restaurant {
+  return {
+    id: `J00${index}`,
+    name: `Test Restaurant ${index}`,
+    address: 'Tokyo',
+    lat: 35.68,
+    lng: 139.76,
+    distance: index * 10,
+    source: 'hotpepper',
+    providerRefs: [{ provider: 'hotpepper', providerId: `J00${index}` }],
+  };
+}

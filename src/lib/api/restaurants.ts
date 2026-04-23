@@ -64,6 +64,8 @@ const GOOGLE_LANGUAGE_CODE: Record<AppLocale, string> = {
   en: 'en',
 };
 
+const RESTAURANT_IDENTITY_ENRICH_CONCURRENCY = 3;
+
 export async function searchRestaurants(params: {
   input: RestaurantSearchInput;
   acceptLanguage: string | null;
@@ -135,7 +137,7 @@ export async function searchRestaurants(params: {
   });
   normalized = sortRestaurants(normalized, sortBy, sortDirection);
 
-  const allResults = await Promise.all(normalized.map(enrichRestaurantForApi));
+  const allResults = await enrichRestaurantsForApi(normalized);
   const appliedFilters: AppliedRestaurantFilters = {
     openNow,
     ...(minRating != null && minRating > 0 ? { minRating } : {}),
@@ -471,6 +473,31 @@ export async function enrichRestaurantForApi(restaurant: Restaurant): Promise<Ap
     providerRefs: resolved.providerRefs,
     photo: resolved.photo,
   });
+}
+
+export async function enrichRestaurantsForApi(
+  restaurants: Restaurant[],
+  enrich: (restaurant: Restaurant) => Promise<ApiRestaurantRecord> = enrichRestaurantForApi,
+  concurrency = RESTAURANT_IDENTITY_ENRICH_CONCURRENCY,
+): Promise<ApiRestaurantRecord[]> {
+  if (restaurants.length === 0) {
+    return [];
+  }
+
+  const workerCount = Math.min(restaurants.length, Math.max(1, Math.floor(concurrency)));
+  const results = new Array<ApiRestaurantRecord>(restaurants.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < restaurants.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await enrich(restaurants[currentIndex]);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, worker));
+  return results;
 }
 
 export async function persistSearchSessionBestEffort(
