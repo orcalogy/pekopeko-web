@@ -1397,7 +1397,7 @@ function EatOutContent() {
                       <Group gap="xs">
                         {pickedRestaurant.menuUrl && (
                           <Button
-                            variant="light"
+                            variant="subtle"
                             color="cyan"
                             size="xs"
                             radius="xl"
@@ -1536,7 +1536,7 @@ function EatOutContent() {
                       )}
                       {pickedRestaurant.couponUrl && (
                         <Button
-                          variant="light"
+                          variant="subtle"
                           color="pink"
                           size="xs"
                           radius="xl"

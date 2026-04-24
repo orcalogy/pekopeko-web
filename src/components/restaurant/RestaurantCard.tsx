@@ -415,7 +415,7 @@ export function RestaurantCard({
             <Group gap="xs" wrap="wrap">
               {restaurant.menuUrl && (
                 <Button
-                  variant="light"
+                  variant="subtle"
                   color="cyan"
                   size="xs"
                   radius="xl"
@@ -537,7 +537,7 @@ export function RestaurantCard({
             )}
             {restaurant.couponUrl && (
               <Button
-                variant="light"
+                variant="subtle"
                 color="pink"
                 size="xs"
                 radius="xl"
