@@ -379,7 +379,10 @@ components:
                   details:
                     provider: google
     ProviderUnavailable:
-      description: Required upstream provider is unavailable
+      description: >
+        Required upstream provider is unavailable. In v1 this means the server cannot satisfy the
+        request with its current provider configuration, so clients should retry only after server
+        configuration changes rather than expecting a transient recovery window.
       headers:
         X-Request-Id:
           $ref: '#/components/headers/XRequestId'

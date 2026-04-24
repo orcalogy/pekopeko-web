@@ -76,10 +76,11 @@ No authorization required
 | **200** | Restaurant details |  * X-Request-Id -  <br>  |
 | **404** | Resource not found |  * X-Request-Id -  <br>  |
 | **429** | Request was rate limited or upstream quota was exhausted. In v1 this primarily reflects upstream quota/rate-limit passthrough; local per-IP throttling is not guaranteed.  |  * X-Request-Id -  <br>  * Retry-After -  <br>  |
-| **503** | Required upstream provider is unavailable |  * X-Request-Id -  <br>  |
+| **503** | Required upstream provider is unavailable. In v1 this means the server cannot satisfy the request with its current provider configuration, so clients should retry only after server configuration changes rather than expecting a transient recovery window.  |  * X-Request-Id -  <br>  |
 | **0** | Internal server error |  * X-Request-Id -  <br>  |
 
 [[Back to top]](#) [[Back to API list]](../README.md#api-endpoints) [[Back to Model list]](../README.md#models) [[Back to README]](../README.md)
+
 
 
 ## getRestaurantPhoto
@@ -149,7 +150,7 @@ No authorization required
 | **404** | Resource not found |  * X-Request-Id -  <br>  |
 | **429** | Request was rate limited or upstream quota was exhausted. In v1 this primarily reflects upstream quota/rate-limit passthrough; local per-IP throttling is not guaranteed.  |  * X-Request-Id -  <br>  * Retry-After -  <br>  |
 | **502** | Upstream provider failure |  * X-Request-Id -  <br>  |
-| **503** | Required upstream provider is unavailable |  * X-Request-Id -  <br>  |
+| **503** | Required upstream provider is unavailable. In v1 this means the server cannot satisfy the request with its current provider configuration, so clients should retry only after server configuration changes rather than expecting a transient recovery window.  |  * X-Request-Id -  <br>  |
 | **0** | Internal server error |  * X-Request-Id -  <br>  |
 
 [[Back to top]](#) [[Back to API list]](../README.md#api-endpoints) [[Back to Model list]](../README.md#models) [[Back to README]](../README.md)
@@ -221,8 +222,7 @@ No authorization required
 | **400** | Invalid request |  * X-Request-Id -  <br>  |
 | **429** | Request was rate limited or upstream quota was exhausted. In v1 this primarily reflects upstream quota/rate-limit passthrough; local per-IP throttling is not guaranteed.  |  * X-Request-Id -  <br>  * Retry-After -  <br>  |
 | **502** | Upstream provider failure |  * X-Request-Id -  <br>  |
-| **503** | Required upstream provider is unavailable |  * X-Request-Id -  <br>  |
+| **503** | Required upstream provider is unavailable. In v1 this means the server cannot satisfy the request with its current provider configuration, so clients should retry only after server configuration changes rather than expecting a transient recovery window.  |  * X-Request-Id -  <br>  |
 | **0** | Internal server error |  * X-Request-Id -  <br>  |
 
 [[Back to top]](#) [[Back to API list]](../README.md#api-endpoints) [[Back to Model list]](../README.md#models) [[Back to README]](../README.md)
-

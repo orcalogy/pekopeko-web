@@ -70,7 +70,7 @@ No authorization required
 |-------------|-------------|------------------|
 | **200** | Geo resolution |  * X-Request-Id -  <br>  |
 | **400** | Invalid request |  * X-Request-Id -  <br>  |
-| **503** | Required upstream provider is unavailable |  * X-Request-Id -  <br>  |
+| **503** | Required upstream provider is unavailable. In v1 this means the server cannot satisfy the request with its current provider configuration, so clients should retry only after server configuration changes rather than expecting a transient recovery window.  |  * X-Request-Id -  <br>  |
 | **0** | Internal server error |  * X-Request-Id -  <br>  |
 
 [[Back to top]](#) [[Back to API list]](../README.md#api-endpoints) [[Back to Model list]](../README.md#models) [[Back to README]](../README.md)
