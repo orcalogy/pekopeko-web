@@ -1,6 +1,7 @@
 import type { ApiVersion } from '../../generated/api/models/apiVersion.ts';
 import type { AppLocale as ContractAppLocale } from '../../generated/api/models/appLocale.ts';
 import type { CapabilitiesResponse } from '../../generated/api/models/capabilitiesResponse.ts';
+import { CapabilitiesResponseToJSON } from '../../generated/api/models/capabilitiesResponse.ts';
 import type { CapabilitiesResponseDetails } from '../../generated/api/models/capabilitiesResponseDetails.ts';
 import type { CapabilitiesResponseGeo } from '../../generated/api/models/capabilitiesResponseGeo.ts';
 import type { CapabilitiesResponseSearch } from '../../generated/api/models/capabilitiesResponseSearch.ts';
@@ -73,13 +74,7 @@ export function serializeCapabilitiesResponse(): unknown {
     categories,
   };
 
-  return {
-    ...payload,
-    categories: payload.categories.map((category) => ({
-      ...category,
-      name: serializeLocalizedCategoryName(category.name),
-    })),
-  };
+  return CapabilitiesResponseToJSON(payload);
 }
 
 export function serializeGeoResolution(resolution: GeoResolution): unknown {
@@ -207,13 +202,5 @@ function serializeProviderExecutionStatus(
           } satisfies UpstreamErrorInfo,
         }
       : {}),
-  };
-}
-
-function serializeLocalizedCategoryName(name: LocalizedCategoryName) {
-  return {
-    'zh-CN': name.zh_CN,
-    ja: name.ja,
-    en: name.en,
   };
 }

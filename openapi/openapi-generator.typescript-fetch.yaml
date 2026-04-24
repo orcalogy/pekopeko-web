@@ -3,6 +3,8 @@ withInterfaces: true
 useSingleRequestParameter: true
 stringEnums: true
 enumUnknownDefaultCase: true
+# Keep generated *ToJSON/*FromJSON helpers in the server/client boundary.
+# Hyphenated schema keys such as `zh-CN` still become `zh_CN` in TypeScript models.
 modelPropertyNaming: original
 paramNaming: original
 enumPropertyNaming: original

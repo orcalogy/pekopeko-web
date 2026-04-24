@@ -1,21 +1,30 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  CapabilitiesResponseFromJSON,
+  CapabilitiesResponseToJSON,
+} from '../../generated/api/models/capabilitiesResponse.ts';
+import {
   serializeCapabilitiesResponse,
   serializeRestaurantDetailsResponse,
   serializeRestaurantSearchResponse,
 } from './serializers.ts';
 import type { RestaurantDetailsResult, RestaurantSearchResult } from './types.ts';
 
-test('capabilities serializer keeps zh-CN on the wire shape', () => {
+test('capabilities serializer round-trips through generated client helpers', () => {
   const payload = serializeCapabilitiesResponse() as {
     details: { freshnessStates: string[] };
     categories: Array<{ name: Record<string, string> }>;
   };
+  const parsed = CapabilitiesResponseFromJSON(payload);
+  const roundTrip = CapabilitiesResponseToJSON(parsed);
 
   assert.equal(typeof payload.categories[0]?.name['zh-CN'], 'string');
   assert.equal('zh_CN' in (payload.categories[0]?.name ?? {}), false);
+  assert.equal(typeof parsed.categories[0]?.name.zh_CN, 'string');
+  assert.equal('zh-CN' in (parsed.categories[0]?.name ?? {}), false);
   assert.deepEqual(payload.details.freshnessStates, ['live', 'partial_live', 'snapshot']);
+  assert.deepEqual(roundTrip, payload);
 });
 
 test('search serializer emits providerStatuses and cursor pagination', () => {
