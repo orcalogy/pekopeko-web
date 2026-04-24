@@ -29,6 +29,7 @@ import { SmartSearchInput } from '@/components/search/SmartSearchInput';
 import { categories } from '@/data/categories';
 import { foods } from '@/data/foods';
 import { filterFoods } from '@/lib/food-filter';
+import { buildEatOutNavigationParams } from '@/lib/llm/eat-out-navigation';
 import { filterFoodsByKeyword, normalizeSearchQuery } from '@/lib/llm/keyword-fallback';
 import { useSemanticSearch } from '@/lib/llm/use-semantic-search';
 import { getCurrentSeason } from '@/lib/season-utils';
@@ -94,6 +95,7 @@ export default function Home() {
   const [showResult, setShowResult] = useState(false);
   const [cookQuery, setCookQuery] = useState('');
   const [eatOutQuery, setEatOutQuery] = useState('');
+  const [eatOutSubmitTarget, setEatOutSubmitTarget] = useState<'search' | 'random' | null>(null);
   const [cookSemanticIntent, setCookSemanticIntent] = useState<{
     keyword?: string;
     mood?: Food['moods'][number];
@@ -191,9 +193,47 @@ export default function Home() {
     [router],
   );
 
+  const buildEatOutRouteParams = useCallback(async () => {
+    if (!normalizedEatOutQuery) {
+      return buildEatOutNavigationParams({});
+    }
+
+    if (!semanticEnabled) {
+      return buildEatOutNavigationParams({ query: normalizedEatOutQuery });
+    }
+
+    const result = await analyzeEatOutQuery(normalizedEatOutQuery);
+    return buildEatOutNavigationParams({
+      query: normalizedEatOutQuery,
+      intent: result.intent,
+    });
+  }, [analyzeEatOutQuery, normalizedEatOutQuery, semanticEnabled]);
+
+  const navigateToEatOut = useCallback(
+    async (target: 'search' | 'random') => {
+      if (target === 'search' && !normalizedEatOutQuery) return;
+
+      setEatOutSubmitTarget(target);
+
+      try {
+        const params = await buildEatOutRouteParams();
+
+        if (target === 'random') {
+          params.set('random', 'true');
+        }
+
+        const query = params.toString();
+        router.push(query ? `/eat-out?${query}` : '/eat-out');
+      } finally {
+        setEatOutSubmitTarget(null);
+      }
+    },
+    [buildEatOutRouteParams, normalizedEatOutQuery, router],
+  );
+
   const handleRandomRestaurant = useCallback(() => {
-    router.push('/eat-out?random=true');
-  }, [router]);
+    return navigateToEatOut('random');
+  }, [navigateToEatOut]);
 
   const handleCookMoodChange = useCallback(
     (mood: Food['moods'][number] | null) => {
@@ -222,30 +262,9 @@ export default function Home() {
     setCookSemanticIntent(null);
   }, [analyzeCookQuery, normalizedCookQuery, semanticEnabled, setMood]);
 
-  const handleEatOutSearch = useCallback(async () => {
-    if (!normalizedEatOutQuery) return;
-
-    const params = new URLSearchParams();
-
-    if (semanticEnabled) {
-      const result = await analyzeEatOutQuery(normalizedEatOutQuery);
-      const inferredKeyword = result.intent?.keyword ?? normalizedEatOutQuery;
-
-      if (inferredKeyword) {
-        params.set('keyword', inferredKeyword);
-      }
-      if (result.intent?.category) {
-        params.set('category', result.intent.category);
-      }
-      if (result.intent?.openNow) {
-        params.set('openNow', 'true');
-      }
-    } else {
-      params.set('keyword', normalizedEatOutQuery);
-    }
-
-    router.push(`/eat-out?${params.toString()}`);
-  }, [analyzeEatOutQuery, normalizedEatOutQuery, router, semanticEnabled]);
+  const handleEatOutSearch = useCallback(() => {
+    return navigateToEatOut('search');
+  }, [navigateToEatOut]);
 
   useEffect(() => {
     if (mode !== 'eatOut') {
@@ -685,7 +704,9 @@ export default function Home() {
                     value={eatOutQuery}
                     onChange={setEatOutQuery}
                     onSubmit={handleEatOutSearch}
-                    loading={semanticEnabled && isAnalyzingEatOut}
+                    loading={
+                      semanticEnabled && isAnalyzingEatOut && eatOutSubmitTarget === 'search'
+                    }
                     submitLabel={
                       locale === 'zh-CN' ? '搜附近' : locale === 'ja' ? '近くを探す' : 'Search'
                     }
@@ -718,6 +739,9 @@ export default function Home() {
                     color="orange"
                     variant="filled"
                     onClick={handleRandomRestaurant}
+                    loading={
+                      semanticEnabled && isAnalyzingEatOut && eatOutSubmitTarget === 'random'
+                    }
                     fullWidth
                   >
                     {locale === 'zh-CN'
