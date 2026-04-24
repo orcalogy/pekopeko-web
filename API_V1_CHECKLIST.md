@@ -97,9 +97,9 @@ As of 2026-04-23, the runtime is ahead of the freeze documentation.
   Resolution:
   `429` remains part of `v1`, documented primarily as upstream quota/rate-limit passthrough unless local rate limiting is added later.
 
-- [x] Align `API_DESIGN.md` and any rate-limit docs with the chosen `429` story.
+- [x] Align the active API docs and any rate-limit notes with the chosen `429` story.
   Current state:
-  the design doc still talks about stronger rate-limiting behavior than the runtime currently provides.
+  the remaining contract-facing docs now describe `429` primarily as upstream quota/rate-limit passthrough unless local rate limiting is added later.
 
 ### Database Invariants
 
@@ -173,9 +173,9 @@ As of 2026-04-23, the runtime is ahead of the freeze documentation.
 
 ### Documentation
 
-- [x] Update `API_DESIGN.md` so it no longer describes already-rejected or ambiguous shapes.
+- [x] Remove obsolete companion design notes that contradicted the current OpenAPI contract.
   Review focus:
-  remove or rewrite the public `id` example, old `page_token` pagination language, outdated rate-limit promises, and any other shapes that contradict the current OpenAPI contract.
+  keep `README.md`, `API_CLIENT_GUIDE.md`, and `openapi/pekopeko-api.yaml` as the active contract-facing references.
 - [x] Add a short client guide describing:
   when to call search vs details,
   how to continue pagination,
