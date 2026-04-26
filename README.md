@@ -9,6 +9,11 @@ The app has two modes:
 
 Locales: `zh-CN`, `ja`, `en`.
 
+## Design Docs
+
+- `docs/llm-restaurant-design.md` describes the local LLM restaurant intelligence design and first-pass behavior.
+- `docs/llm-restaurant-implementation.md` records implementation phases, validation rules, tests, and deferred work.
+
 ## Scripts
 
 ```bash
