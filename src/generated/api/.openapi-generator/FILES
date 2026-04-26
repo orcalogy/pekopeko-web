@@ -40,6 +40,7 @@ docs/RestaurantSearchItem.md
 docs/RestaurantSearchPagination.md
 docs/RestaurantSearchPaginationRequest.md
 docs/RestaurantSearchQuery.md
+docs/RestaurantSearchQueryProviderKeywords.md
 docs/RestaurantSearchRequest.md
 docs/RestaurantSearchRequestLocation.md
 docs/RestaurantSearchResponse.md
@@ -88,6 +89,7 @@ models/restaurantSearchItem.ts
 models/restaurantSearchPagination.ts
 models/restaurantSearchPaginationRequest.ts
 models/restaurantSearchQuery.ts
+models/restaurantSearchQueryProviderKeywords.ts
 models/restaurantSearchRequest.ts
 models/restaurantSearchRequestLocation.ts
 models/restaurantSearchResponse.ts

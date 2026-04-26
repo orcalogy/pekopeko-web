@@ -11,6 +11,9 @@ test('parses camelCase restaurant search requests', () => {
     query: {
       keyword: 'ramen',
       categoryId: 'noodles',
+      providerKeywords: {
+        google: ['quiet ramen', 'station ramen'],
+      },
     },
     filters: {
       openNow: true,
@@ -34,6 +37,9 @@ test('parses camelCase restaurant search requests', () => {
     query: {
       keyword: 'ramen',
       categoryId: 'noodles',
+      providerKeywords: {
+        google: ['quiet ramen', 'station ramen'],
+      },
     },
     filters: {
       openNow: true,
@@ -51,6 +57,38 @@ test('parses camelCase restaurant search requests', () => {
       cursor: undefined,
     },
   });
+});
+
+test('rejects unsupported provider keyword keys', () => {
+  assert.throws(
+    () =>
+      parseRestaurantSearchRequest({
+        location: { lat: 35.6895, lng: 139.6917 },
+        query: {
+          providerKeywords: {
+            yelp: ['ramen'],
+          },
+        },
+      }),
+    /unsupported fields/,
+  );
+});
+
+test('rejects too many provider keyword expansions', () => {
+  assert.throws(
+    () =>
+      parseRestaurantSearchRequest({
+        location: { lat: 35.6895, lng: 139.6917 },
+        query: {
+          providerKeywords: {
+            google: ['a', 'b', 'c'],
+            hotpepper: ['d', 'e', 'f'],
+            amap: ['g'],
+          },
+        },
+      }),
+    /at most 6 total/,
+  );
 });
 
 test('parses cursor-only restaurant search requests', () => {

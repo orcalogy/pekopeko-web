@@ -1,7 +1,7 @@
 
 # RestaurantSearchPaginationRequest
 
-Cursor-based pagination. `pageSize` may be set only on the first page. When `cursor` is present, omit all other search-definition fields and continue the previously created search session.
+Cursor-based pagination. `pageSize` may be set only on the first page. When `cursor` is present, omit all other search-definition fields and continue the previously created search session. 
 
 ## Properties
 
@@ -33,4 +33,5 @@ console.log(exampleParsed)
 ```
 
 [[Back to top]](#) [[Back to API list]](../README.md#api-endpoints) [[Back to Model list]](../README.md#models) [[Back to README]](../README.md)
+
 

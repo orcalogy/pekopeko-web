@@ -13,6 +13,14 @@
  */
 
 import { mapValues } from '../runtime.ts';
+import type { RestaurantSearchQueryProviderKeywords } from './restaurantSearchQueryProviderKeywords.ts';
+import {
+    RestaurantSearchQueryProviderKeywordsFromJSON,
+    RestaurantSearchQueryProviderKeywordsFromJSONTyped,
+    RestaurantSearchQueryProviderKeywordsToJSON,
+    RestaurantSearchQueryProviderKeywordsToJSONTyped,
+} from './restaurantSearchQueryProviderKeywords.ts';
+
 /**
  * 
  * @export
@@ -31,6 +39,12 @@ export interface RestaurantSearchQuery {
      * @memberof RestaurantSearchQuery
      */
     categoryId?: string;
+    /**
+     * 
+     * @type {RestaurantSearchQueryProviderKeywords}
+     * @memberof RestaurantSearchQuery
+     */
+    providerKeywords?: RestaurantSearchQueryProviderKeywords;
 }
 
 /**
@@ -52,6 +66,7 @@ export function RestaurantSearchQueryFromJSONTyped(json: any, ignoreDiscriminato
         
         'keyword': json['keyword'] == null ? undefined : json['keyword'],
         'categoryId': json['categoryId'] == null ? undefined : json['categoryId'],
+        'providerKeywords': json['providerKeywords'] == null ? undefined : RestaurantSearchQueryProviderKeywordsFromJSON(json['providerKeywords']),
     };
 }
 
@@ -68,6 +83,7 @@ export function RestaurantSearchQueryToJSONTyped(value?: RestaurantSearchQuery |
         
         'keyword': value['keyword'],
         'categoryId': value['categoryId'],
+        'providerKeywords': RestaurantSearchQueryProviderKeywordsToJSON(value['providerKeywords']),
     };
 }
 

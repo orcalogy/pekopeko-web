@@ -1,6 +1,6 @@
 import type { FeedbackEvent } from '@/stores/restaurant-feedback';
 import type { VisitRecord } from '@/stores/visited';
-import type { DerivedTasteProfile } from './types';
+import type { AspectPreferenceOverrides, DerivedTasteProfile, FeedbackAspect } from './types';
 
 const DAY_MS = 86_400_000;
 export const NOT_INTERESTED_SUPPRESSION_MS = 21 * DAY_MS;
@@ -33,6 +33,37 @@ function getTopKeys(counter: Map<string, number>, limit: number): string[] {
     .map(([key]) => key);
 }
 
+function getTopAspects(
+  counter: Map<FeedbackAspect, number>,
+  options: {
+    limit: number;
+    direction: 'positive' | 'negative';
+    hidden?: Set<FeedbackAspect>;
+  },
+): FeedbackAspect[] {
+  return [...counter.entries()]
+    .filter(([aspect, score]) =>
+      options.direction === 'positive'
+        ? score > 0.2 && !options.hidden?.has(aspect)
+        : score < -0.2 && !options.hidden?.has(aspect),
+    )
+    .sort((a, b) =>
+      options.direction === 'positive' ? b[1] - a[1] : Math.abs(b[1]) - Math.abs(a[1]),
+    )
+    .slice(0, options.limit)
+    .map(([aspect]) => aspect);
+}
+
+function addAspectScores(
+  counter: Map<FeedbackAspect, number>,
+  aspects: FeedbackAspect[] | undefined,
+  weight: number,
+) {
+  for (const aspect of aspects ?? []) {
+    counter.set(aspect, (counter.get(aspect) ?? 0) + weight);
+  }
+}
+
 export function getLatestFeedbackByRestaurant(events: FeedbackEvent[]): Map<string, FeedbackEvent> {
   const latestByRestaurant = new Map<string, FeedbackEvent>();
 
@@ -63,8 +94,15 @@ export function getSuppressedRestaurantKeys(
 export function deriveRecommendationProfile(
   visitRecords: VisitRecord[],
   feedbackEvents: FeedbackEvent[],
+  overrides?: Partial<AspectPreferenceOverrides>,
 ): DerivedTasteProfile | null {
-  if (visitRecords.length === 0 && feedbackEvents.length === 0) {
+  const hasAspectOverrides = Boolean(
+    overrides?.pinnedPreferredAspects?.length ||
+      overrides?.alwaysConsiderAspects?.length ||
+      overrides?.hiddenAspects?.length,
+  );
+
+  if (visitRecords.length === 0 && feedbackEvents.length === 0 && !hasAspectOverrides) {
     return null;
   }
 
@@ -72,6 +110,11 @@ export function deriveRecommendationProfile(
   const avoidedCuisineCounts = new Map<string, number>();
   const featureCounts = new Map<string, number>();
   const avoidedFeatureCounts = new Map<string, number>();
+  const aspectCounts = new Map<FeedbackAspect, number>();
+  const recentlyRejectedAspectCounts = new Map<FeedbackAspect, number>();
+  const hiddenAspects = new Set(overrides?.hiddenAspects ?? []);
+  const pinnedPreferredAspects = overrides?.pinnedPreferredAspects ?? [];
+  const alwaysConsiderAspects = overrides?.alwaysConsiderAspects ?? [];
   let totalVisits = 0;
   let weightedPrice = 0;
   let weightedPriceCount = 0;
@@ -154,10 +197,40 @@ export function deriveRecommendationProfile(
       weightedDistance += event.snapshot.distance * positiveWeight;
       weightedDistanceCount += positiveWeight;
     }
+
+    if (positiveWeight > 0) {
+      addAspectScores(aspectCounts, event.aspects, positiveWeight);
+    }
+    if (negativeWeight > 0) {
+      addAspectScores(aspectCounts, event.aspects, -negativeWeight);
+    }
+    if (event.kind === 'not_interested') {
+      addAspectScores(
+        recentlyRejectedAspectCounts,
+        event.aspects,
+        getDismissWeight(event.createdAt),
+      );
+    }
   }
 
   const totalDistinctRestaurants = new Set(visitRecords.map((record) => record.restaurantKey)).size;
   const noveltyRatio = totalVisits > 0 ? totalDistinctRestaurants / totalVisits : 0.5;
+  const preferredAspects = [
+    ...new Set([
+      ...pinnedPreferredAspects.filter((aspect) => !hiddenAspects.has(aspect)),
+      ...getTopAspects(aspectCounts, { limit: 5, direction: 'positive', hidden: hiddenAspects }),
+    ]),
+  ].slice(0, 6);
+  const avoidedAspects = getTopAspects(aspectCounts, {
+    limit: 5,
+    direction: 'negative',
+    hidden: hiddenAspects,
+  });
+  const recentlyRejectedAspects = getTopAspects(recentlyRejectedAspectCounts, {
+    limit: 5,
+    direction: 'positive',
+    hidden: hiddenAspects,
+  });
 
   return {
     totalVisits,
@@ -177,6 +250,14 @@ export function deriveRecommendationProfile(
     typicalDistanceMeters:
       weightedDistanceCount > 0 ? Math.round(weightedDistance / weightedDistanceCount) : undefined,
     noveltyPreference: noveltyRatio >= 0.75 ? 'high' : noveltyRatio >= 0.45 ? 'medium' : 'low',
+    aspectScores: [...aspectCounts.entries()]
+      .filter(([aspect]) => !hiddenAspects.has(aspect))
+      .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+      .map(([aspect, score]) => ({ aspect, score })),
+    preferredAspects,
+    avoidedAspects,
+    recentlyRejectedAspects,
+    alwaysConsiderAspects: alwaysConsiderAspects.filter((aspect) => !hiddenAspects.has(aspect)),
     suppression: {
       restaurantKeys: [...getSuppressedRestaurantKeys(feedbackEvents)],
     },

@@ -10,20 +10,29 @@ import {
   markLlmRuntimeError,
   refreshLlmModelCacheStatus,
 } from '@/lib/llm/engine';
-import { parseCookIntent, parseEatOutIntent, parseEatOutRerank } from '@/lib/llm/intent-parser';
+import {
+  parseCookIntent,
+  parseEatOutIntent,
+  parseEatOutRefinementPatch,
+  parseEatOutRerank,
+} from '@/lib/llm/intent-parser';
 import { normalizeSearchQuery } from '@/lib/llm/keyword-fallback';
 import {
   buildCookPrompt,
   buildEatOutPrompt,
+  buildEatOutRefinementPatchPrompt,
   buildEatOutRerankPrompt,
   COOK_INTENT_SCHEMA,
   EAT_OUT_INTENT_SCHEMA,
+  EAT_OUT_REFINEMENT_PATCH_SCHEMA,
   EAT_OUT_RERANK_SCHEMA,
 } from '@/lib/llm/prompts';
 import type {
   CookSemanticIntent,
+  EatOutRefinementPatch,
   EatOutRerankEntry,
   EatOutSemanticIntent,
+  RestaurantFactCard,
   SemanticRerankResult,
   SemanticSearchResult,
 } from '@/lib/llm/types';
@@ -63,7 +72,7 @@ export function useSemanticSearch() {
   const setRuntimeMessage = useLlmStore((state) => state.setRuntimeMessage);
 
   const [activeTarget, setActiveTarget] = useState<
-    'cook-intent' | 'eat-out-intent' | 'eat-out-rerank' | null
+    'cook-intent' | 'eat-out-intent' | 'eat-out-refinement' | 'eat-out-rerank' | null
   >(null);
 
   const semanticEnabled = isSemanticSearchEnabled(llmEnabled) && !sessionDisabled;
@@ -92,7 +101,7 @@ export function useSemanticSearch() {
 
   const runStructuredQuery = useCallback(
     async (
-      action: 'cook-intent' | 'eat-out-intent' | 'eat-out-rerank',
+      action: 'cook-intent' | 'eat-out-intent' | 'eat-out-refinement' | 'eat-out-rerank',
       task: 'cook' | 'eat-out',
       messages: ChatCompletionMessageParam[],
       schema: string,
@@ -215,11 +224,13 @@ export function useSemanticSearch() {
       tasteProfileSummary,
       candidateCatalog,
       validIds,
+      factCards,
     }: {
       goalSummary: string;
       tasteProfileSummary?: string | null;
       candidateCatalog: string;
       validIds: string[];
+      factCards?: RestaurantFactCard[];
     }): Promise<SemanticRerankResult<EatOutRerankEntry>> => {
       if (!semanticEnabled || !goalSummary || !candidateCatalog || validIds.length === 0) {
         return { mode: 'fallback', items: [] };
@@ -248,7 +259,7 @@ export function useSemanticSearch() {
       }
 
       try {
-        const items = parseEatOutRerank(raw, validIds);
+        const items = parseEatOutRerank(raw, factCards?.length ? factCards : validIds, locale);
         if (!items) {
           setRuntimeMessage('No reliable AI reranking was produced. Keeping current order.');
           return { mode: 'fallback', items: [] };
@@ -263,16 +274,70 @@ export function useSemanticSearch() {
     [locale, runStructuredQuery, semanticEnabled, setRuntimeMessage],
   );
 
+  const analyzeEatOutRefinement = useCallback(
+    async (params: {
+      query: string;
+      currentGoalSummary: string;
+    }): Promise<SemanticSearchResult<EatOutRefinementPatch>> => {
+      const normalizedQuery = normalizeSearchQuery(params.query);
+      if (!normalizedQuery || !semanticEnabled) {
+        return { mode: 'fallback', intent: null };
+      }
+
+      const prompt = buildEatOutRefinementPatchPrompt({
+        query: normalizedQuery,
+        currentGoalSummary: params.currentGoalSummary,
+      });
+      const raw = await runStructuredQuery(
+        'eat-out-refinement',
+        'eat-out',
+        [
+          { role: 'system', content: prompt.system },
+          { role: 'user', content: prompt.user },
+        ],
+        EAT_OUT_REFINEMENT_PATCH_SCHEMA,
+        220,
+        'Local restaurant refinement is ready.',
+      );
+
+      if (!raw) {
+        return { mode: 'fallback', intent: null };
+      }
+
+      try {
+        const intent = parseEatOutRefinementPatch(raw);
+        if (!intent) {
+          setRuntimeMessage('No reliable refinement patch was found. Using keyword refine.');
+          return { mode: 'fallback', intent: null };
+        }
+
+        return { mode: 'semantic', intent };
+      } catch {
+        setRuntimeMessage('Refinement output was invalid JSON. Using keyword refine.');
+        return { mode: 'fallback', intent: null, error: 'invalid-json' };
+      }
+    },
+    [runStructuredQuery, semanticEnabled, setRuntimeMessage],
+  );
+
   return useMemo(
     () => ({
       semanticEnabled,
       isAnalyzingCook: activeTarget === 'cook-intent',
-      isAnalyzingEatOut: activeTarget === 'eat-out-intent',
+      isAnalyzingEatOut: activeTarget === 'eat-out-intent' || activeTarget === 'eat-out-refinement',
       isRerankingEatOut: activeTarget === 'eat-out-rerank',
       analyzeCookQuery,
       analyzeEatOutQuery,
+      analyzeEatOutRefinement,
       rerankEatOutResults,
     }),
-    [activeTarget, analyzeCookQuery, analyzeEatOutQuery, rerankEatOutResults, semanticEnabled],
+    [
+      activeTarget,
+      analyzeCookQuery,
+      analyzeEatOutQuery,
+      analyzeEatOutRefinement,
+      rerankEatOutResults,
+      semanticEnabled,
+    ],
   );
 }

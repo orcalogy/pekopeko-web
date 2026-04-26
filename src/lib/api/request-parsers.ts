@@ -1,4 +1,5 @@
 import { getCategoryById } from '../../data/categories.ts';
+import type { MapProviderType } from '../../types/restaurant.ts';
 import { isAppLocale } from '../app-locale.ts';
 import { ApiRouteError } from './http.ts';
 import {
@@ -25,7 +26,7 @@ const SEARCH_KEYS = [
   'pagination',
 ] as const;
 const SEARCH_LOCATION_KEYS = ['lat', 'lng'] as const;
-const SEARCH_QUERY_KEYS = ['keyword', 'categoryId'] as const;
+const SEARCH_QUERY_KEYS = ['keyword', 'categoryId', 'providerKeywords'] as const;
 const SEARCH_FILTER_KEYS = [
   'openNow',
   'minRating',
@@ -135,6 +136,10 @@ export function parseRestaurantSearchRequest(body: unknown): RestaurantSearchInp
         : {
             keyword: readOptionalString(queryRecord.keyword, 'query.keyword') ?? undefined,
             categoryId: categoryId ?? undefined,
+            providerKeywords: readOptionalProviderKeywords(
+              queryRecord.providerKeywords,
+              'query.providerKeywords',
+            ),
           },
     filters:
       filtersRecord == null
@@ -364,4 +369,81 @@ function readOptionalFeatureList(value: unknown, field: string): RestaurantFeatu
   });
 
   return [...new Set(features)];
+}
+
+function readOptionalProviderKeywords(
+  value: unknown,
+  field: string,
+): Partial<Record<MapProviderType, string[]>> | undefined {
+  if (value == null) return undefined;
+  const record = expectObject(value, field);
+  const allowedProviderKeys = ['google', 'hotpepper', 'amap'] as const;
+  assertAllowedKeys(record, allowedProviderKeys, field);
+
+  const result: Partial<Record<MapProviderType, string[]>> = {};
+  const globalSeen = new Set<string>();
+  let total = 0;
+
+  for (const provider of allowedProviderKeys) {
+    const rawQueries = record[provider];
+    if (rawQueries == null) continue;
+    if (!Array.isArray(rawQueries)) {
+      throw new ApiRouteError({
+        status: 400,
+        code: 'invalid_argument',
+        message: `${field}.${provider} must be an array`,
+        details: { field: `${field}.${provider}` },
+      });
+    }
+    if (rawQueries.length > 3) {
+      throw new ApiRouteError({
+        status: 400,
+        code: 'invalid_argument',
+        message: `${field}.${provider} must contain at most 3 items`,
+        details: { field: `${field}.${provider}` },
+      });
+    }
+
+    const providerQueries: string[] = [];
+    for (const [index, item] of rawQueries.entries()) {
+      if (typeof item !== 'string') {
+        throw new ApiRouteError({
+          status: 400,
+          code: 'invalid_argument',
+          message: `${field}.${provider} contains a non-string keyword`,
+          details: { field: `${field}.${provider}`, index, value: String(item) },
+        });
+      }
+
+      const normalized = item.trim().replace(/\s+/g, ' ');
+      const dedupeKey = `${provider}:${normalized.toLocaleLowerCase()}`;
+      if (!normalized || globalSeen.has(dedupeKey)) continue;
+      if (normalized.length > 80) {
+        throw new ApiRouteError({
+          status: 400,
+          code: 'invalid_argument',
+          message: `${field}.${provider} contains a keyword that is too long`,
+          details: { field: `${field}.${provider}`, index, value: normalized },
+        });
+      }
+      if (total >= 6) {
+        throw new ApiRouteError({
+          status: 400,
+          code: 'invalid_argument',
+          message: `${field} must contain at most 6 total keywords`,
+          details: { field },
+        });
+      }
+
+      globalSeen.add(dedupeKey);
+      providerQueries.push(normalized);
+      total += 1;
+    }
+
+    if (providerQueries.length > 0) {
+      result[provider] = providerQueries;
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
 }

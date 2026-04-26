@@ -16,11 +16,13 @@ import {
   useMantineColorScheme,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import type { AppLocale } from '@/lib/app-locale';
 import { isLlmFeatureAvailable } from '@/lib/llm/availability';
 import { clearLlmModelCache } from '@/lib/llm/engine';
+import { deriveRestaurantTasteProfile } from '@/lib/llm/restaurant-taste-profile';
+import type { FeedbackAspect } from '@/lib/recommendation/types';
 import {
   formatSearchRadius,
   formatSearchRadiusMark,
@@ -59,7 +61,14 @@ export default function SettingsPage() {
     removeRecord: removeVisited,
     clearAll: clearVisited,
   } = useVisited();
-  const { events: feedbackEvents, clearAll: clearFeedback } = useRestaurantFeedback();
+  const {
+    events: feedbackEvents,
+    aspectPreferenceOverrides,
+    pinPreferredAspect,
+    alwaysConsiderAspect,
+    hideAspect,
+    clearAll: clearFeedback,
+  } = useRestaurantFeedback();
   const { setColorScheme } = useMantineColorScheme();
   const llmAvailability = useLlmStore((state) => state.availability);
   const llmRuntimeState = useLlmStore((state) => state.runtimeState);
@@ -149,6 +158,18 @@ export default function SettingsPage() {
     visitedCount: { 'zh-CN': '家店', ja: '件のお店', en: 'restaurants' },
     visitTimes: { 'zh-CN': '次', ja: '回', en: 'visits' },
     feedback: { 'zh-CN': '推荐反馈', ja: 'おすすめフィードバック', en: 'Recommendation Feedback' },
+    aiRestaurantPrefs: {
+      'zh-CN': 'AI 餐厅偏好',
+      ja: 'AI レストラン傾向',
+      en: 'AI Restaurant Preferences',
+    },
+    usuallyPrefer: { 'zh-CN': '常偏好', ja: 'よく好む', en: 'Usually prefer' },
+    avoid: { 'zh-CN': '尽量避开', ja: '控えめ', en: 'Avoid' },
+    alwaysConsider: { 'zh-CN': '总是考虑', ja: '常に考慮', en: 'Always consider' },
+    recentlyRejected: { 'zh-CN': '最近不想要', ja: '最近見送り', en: 'Recently rejected' },
+    pin: { 'zh-CN': '固定', ja: '固定', en: 'Pin' },
+    hide: { 'zh-CN': '隐藏', ja: '非表示', en: 'Hide' },
+    consider: { 'zh-CN': '总考虑', ja: '常に考慮', en: 'Consider' },
     feedbackCount: { 'zh-CN': '条反馈', ja: '件のフィードバック', en: 'feedback events' },
     clearFeedback: { 'zh-CN': '清除反馈', ja: 'フィードバックをクリア', en: 'Clear Feedback' },
     clearRecommendationData: {
@@ -160,6 +181,10 @@ export default function SettingsPage() {
   } as const;
 
   const l = (key: keyof typeof labels) => labels[key][locale];
+  const restaurantTasteProfile = useMemo(
+    () => deriveRestaurantTasteProfile(visitedRecords, feedbackEvents, aspectPreferenceOverrides),
+    [aspectPreferenceOverrides, feedbackEvents, visitedRecords],
+  );
   const effectiveSearchRadiusKm = normalizeSearchRadiusKm(searchRadiusKm);
   const searchRadiusIndex = getSearchRadiusPresetIndex(effectiveSearchRadiusKm);
   const llmFeatureAvailable = isLlmFeatureAvailable();
@@ -529,6 +554,45 @@ export default function SettingsPage() {
 
           <Card padding="md" radius="md" withBorder>
             <Stack gap="sm">
+              <Box>
+                <Text fw={600}>{l('aiRestaurantPrefs')}</Text>
+                <Text size="sm" c="dimmed">
+                  {feedbackEvents.length} {l('feedbackCount')}
+                </Text>
+              </Box>
+              <PreferenceAspectGroup
+                title={l('usuallyPrefer')}
+                locale={locale}
+                aspects={restaurantTasteProfile?.preferredAspects ?? []}
+                actions={[
+                  { label: l('pin'), onClick: pinPreferredAspect },
+                  { label: l('consider'), onClick: alwaysConsiderAspect },
+                  { label: l('hide'), onClick: hideAspect },
+                ]}
+              />
+              <PreferenceAspectGroup
+                title={l('avoid')}
+                locale={locale}
+                aspects={restaurantTasteProfile?.avoidedAspects ?? []}
+                actions={[{ label: l('hide'), onClick: hideAspect }]}
+              />
+              <PreferenceAspectGroup
+                title={l('alwaysConsider')}
+                locale={locale}
+                aspects={restaurantTasteProfile?.alwaysConsiderAspects ?? []}
+                actions={[{ label: l('hide'), onClick: hideAspect }]}
+              />
+              <PreferenceAspectGroup
+                title={l('recentlyRejected')}
+                locale={locale}
+                aspects={restaurantTasteProfile?.recentlyRejectedAspects ?? []}
+                actions={[{ label: l('hide'), onClick: hideAspect }]}
+              />
+            </Stack>
+          </Card>
+
+          <Card padding="md" radius="md" withBorder>
+            <Stack gap="sm">
               <Group justify="space-between" align="center">
                 <Box>
                   <Text fw={600}>{l('feedback')}</Text>
@@ -600,5 +664,61 @@ function SliderScaleLabels({
         );
       })}
     </Box>
+  );
+}
+
+const FEEDBACK_ASPECT_LABELS: Record<FeedbackAspect, Record<AppLocale, string>> = {
+  taste: { 'zh-CN': '口味', ja: '味', en: 'Taste' },
+  price: { 'zh-CN': '价格', ja: '価格', en: 'Price' },
+  distance: { 'zh-CN': '距离', ja: '距離', en: 'Distance' },
+  ambience: { 'zh-CN': '氛围', ja: '雰囲気', en: 'Ambience' },
+  noise: { 'zh-CN': '吵', ja: '騒音', en: 'Noise' },
+  crowd: { 'zh-CN': '拥挤', ja: '混雑', en: 'Crowd' },
+  service: { 'zh-CN': '服务', ja: 'サービス', en: 'Service' },
+  solo: { 'zh-CN': '一人', ja: 'ひとり', en: 'Solo' },
+  group: { 'zh-CN': '多人', ja: 'グループ', en: 'Group' },
+  dietary: { 'zh-CN': '饮食限制', ja: '食事制限', en: 'Dietary' },
+  access: { 'zh-CN': '交通', ja: 'アクセス', en: 'Access' },
+  opening_hours: { 'zh-CN': '营业时间', ja: '営業時間', en: 'Hours' },
+  not_my_mood: { 'zh-CN': '不合心情', ja: '気分違い', en: 'Not mood' },
+};
+
+function PreferenceAspectGroup({
+  title,
+  locale,
+  aspects,
+  actions,
+}: {
+  title: string;
+  locale: AppLocale;
+  aspects: FeedbackAspect[];
+  actions: Array<{ label: string; onClick: (aspect: FeedbackAspect) => void }>;
+}) {
+  if (aspects.length === 0) return null;
+
+  return (
+    <Stack gap={6}>
+      <Text size="sm" fw={600}>
+        {title}
+      </Text>
+      <Group gap="xs" wrap="wrap">
+        {aspects.map((aspect) => (
+          <Group key={aspect} gap={4} wrap="nowrap">
+            <Text size="xs">{FEEDBACK_ASPECT_LABELS[aspect][locale]}</Text>
+            {actions.map((action) => (
+              <Button
+                key={action.label}
+                variant="subtle"
+                color="gray"
+                size="xs"
+                onClick={() => action.onClick(aspect)}
+              >
+                {action.label}
+              </Button>
+            ))}
+          </Group>
+        ))}
+      </Group>
+    </Stack>
   );
 }

@@ -1,4 +1,5 @@
 import type { MealTime, Mood } from '@/types/food';
+import type { MapProviderType } from '@/types/restaurant';
 
 export const COOK_MOODS = [
   'happy',
@@ -32,9 +33,85 @@ export const EAT_OUT_FEATURES = [
 ] as const;
 
 export const EAT_OUT_SORT_OPTIONS = ['distance', 'rating'] as const;
+export const EAT_OUT_MISSING_INFO = [
+  'budget',
+  'occasion',
+  'distance',
+  'cuisine',
+  'partySize',
+  'ambience',
+  'openingHours',
+  'dietary',
+] as const;
+export const SPATIAL_INTENT_TYPES = [
+  'near_current_location',
+  'near_landmark',
+  'near_station',
+  'along_route',
+  'between_people',
+] as const;
+export const SPATIAL_IMPORTANCE = ['hard', 'soft'] as const;
 
 export type EatOutFeature = (typeof EAT_OUT_FEATURES)[number];
 export type EatOutSortOption = (typeof EAT_OUT_SORT_OPTIONS)[number];
+export type EatOutMissingInfo = (typeof EAT_OUT_MISSING_INFO)[number];
+export type SpatialIntentType = (typeof SPATIAL_INTENT_TYPES)[number];
+export type SpatialIntentImportance = (typeof SPATIAL_IMPORTANCE)[number];
+
+export interface EatOutClarifyingQuestion {
+  question: string;
+  options: string[];
+}
+
+export interface SpatialIntent {
+  type: SpatialIntentType;
+  anchorText?: string;
+  maxWalkMinutes?: number;
+  radiusM?: number;
+  importance: SpatialIntentImportance;
+}
+
+export interface EatOutQueryExpansion {
+  primaryKeyword?: string;
+  providerQueries?: Partial<Record<MapProviderType, string[]>>;
+  hardFilters?: Array<'openNow'>;
+  softPreferences?: string[];
+}
+
+export interface EatOutRefinementPatch {
+  operation: 'refine';
+  addSoftPreferences?: string[];
+  removeCuisines?: string[];
+  maxBudgetLevel?: 1 | 2 | 3 | 4;
+  partySize?: number;
+  openNow?: boolean;
+  spatialIntent?: SpatialIntent;
+  rerankOnly?: boolean;
+}
+
+export interface RestaurantFactCard {
+  id: string;
+  name: string;
+  distanceM?: number;
+  rating?: number;
+  priceLevel?: 1 | 2 | 3 | 4;
+  openNow?: boolean;
+  cuisine?: string;
+  features: string[];
+  ambienceHints?: string[];
+  occasionHints?: string[];
+  providerConfidence: 'high' | 'medium' | 'low';
+  missingFacts: string[];
+  deterministicReasons: string[];
+}
+
+export interface SearchSessionGoal {
+  originalQuery?: string;
+  currentConstraints: Record<string, unknown>;
+  softPreferences: string[];
+  rejectedAspects: string[];
+  acceptedRefinements: string[];
+}
 
 export type LlmAvailabilityState =
   | 'flag-disabled'
@@ -66,11 +143,21 @@ export interface EatOutSemanticIntent {
   partySize?: number;
   features?: EatOutFeature[];
   sortBy?: EatOutSortOption;
+  confidence: number;
+  missingInfo?: EatOutMissingInfo[];
+  clarifyingQuestion?: EatOutClarifyingQuestion;
+  spatialIntent?: SpatialIntent;
+  queryExpansion?: EatOutQueryExpansion;
+  softPreferences?: string[];
 }
 
 export interface EatOutRerankEntry {
   id: string;
   reason: string;
+  score: number;
+  matched: string[];
+  tradeoffs: string[];
+  confidence: number;
 }
 
 export interface SemanticSearchResult<TIntent> {

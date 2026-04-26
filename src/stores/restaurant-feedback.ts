@@ -4,7 +4,13 @@ import {
   buildRestaurantPreferenceSnapshot,
   getRestaurantIdentityKey,
 } from '@/lib/recommendation/identity';
-import type { FeedbackKind, RestaurantPreferenceSnapshot } from '@/lib/recommendation/types';
+import {
+  type AspectPreferenceOverrides,
+  FEEDBACK_ASPECTS,
+  type FeedbackAspect,
+  type FeedbackKind,
+  type RestaurantPreferenceSnapshot,
+} from '@/lib/recommendation/types';
 import type { Restaurant } from '@/types/restaurant';
 
 export interface FeedbackContext {
@@ -21,6 +27,7 @@ export interface FeedbackEvent {
   name: string;
   kind: FeedbackKind;
   createdAt: number;
+  aspects?: FeedbackAspect[];
   snapshot?: RestaurantPreferenceSnapshot;
   context?: FeedbackContext;
 }
@@ -39,11 +46,18 @@ export type FeedbackRestaurantInput = Pick<
 
 interface RestaurantFeedbackState {
   events: FeedbackEvent[];
+  aspectPreferenceOverrides: AspectPreferenceOverrides;
   addFeedback: (input: {
     restaurant: FeedbackRestaurantInput;
     kind: FeedbackKind;
     context?: FeedbackContext;
-  }) => void;
+    aspects?: FeedbackAspect[];
+  }) => string | null;
+  updateFeedbackAspects: (eventId: string, aspects: FeedbackAspect[]) => void;
+  pinPreferredAspect: (aspect: FeedbackAspect) => void;
+  alwaysConsiderAspect: (aspect: FeedbackAspect) => void;
+  hideAspect: (aspect: FeedbackAspect) => void;
+  unhideAspect: (aspect: FeedbackAspect) => void;
   removeEvent: (eventId: string) => void;
   clearAll: () => void;
 }
@@ -60,45 +74,133 @@ function buildFeedbackEventId(): string {
   return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function sanitizeAspects(value: unknown): FeedbackAspect[] {
+  if (!Array.isArray(value)) return [];
+
+  return [
+    ...new Set(
+      value.filter(
+        (item): item is FeedbackAspect =>
+          typeof item === 'string' && FEEDBACK_ASPECTS.includes(item as FeedbackAspect),
+      ),
+    ),
+  ];
+}
+
+const emptyAspectPreferenceOverrides: AspectPreferenceOverrides = {
+  pinnedPreferredAspects: [],
+  hiddenAspects: [],
+  alwaysConsiderAspects: [],
+};
+
 export const useRestaurantFeedback = create<RestaurantFeedbackState>()(
   persist(
     (set) => ({
       events: [],
+      aspectPreferenceOverrides: emptyAspectPreferenceOverrides,
 
-      addFeedback: ({ restaurant, kind, context }) =>
+      addFeedback: ({ restaurant, kind, context, aspects }) => {
+        const eventId = buildFeedbackEventId();
+        let created = false;
+
         set((state) => {
           const restaurantKey = getRestaurantIdentityKey(restaurant);
           if (!restaurantKey) {
             return state;
           }
+          created = true;
 
           return {
             events: [
               ...state.events,
               {
-                id: buildFeedbackEventId(),
+                id: eventId,
                 restaurantKey,
                 providerId: restaurant.id,
                 name: restaurant.name,
                 kind,
                 createdAt: Date.now(),
+                aspects: sanitizeAspects(aspects),
                 snapshot: buildRestaurantPreferenceSnapshot(restaurant),
                 context,
               },
             ],
           };
-        }),
+        });
+
+        return created ? eventId : null;
+      },
+
+      updateFeedbackAspects: (eventId, aspects) =>
+        set((state) => ({
+          events: state.events.map((event) =>
+            event.id === eventId ? { ...event, aspects: sanitizeAspects(aspects) } : event,
+          ),
+        })),
+
+      pinPreferredAspect: (aspect) =>
+        set((state) => ({
+          aspectPreferenceOverrides: {
+            ...state.aspectPreferenceOverrides,
+            pinnedPreferredAspects: [
+              ...new Set([...state.aspectPreferenceOverrides.pinnedPreferredAspects, aspect]),
+            ],
+            hiddenAspects: state.aspectPreferenceOverrides.hiddenAspects.filter(
+              (item) => item !== aspect,
+            ),
+          },
+        })),
+
+      alwaysConsiderAspect: (aspect) =>
+        set((state) => ({
+          aspectPreferenceOverrides: {
+            ...state.aspectPreferenceOverrides,
+            alwaysConsiderAspects: [
+              ...new Set([...state.aspectPreferenceOverrides.alwaysConsiderAspects, aspect]),
+            ],
+            hiddenAspects: state.aspectPreferenceOverrides.hiddenAspects.filter(
+              (item) => item !== aspect,
+            ),
+          },
+        })),
+
+      hideAspect: (aspect) =>
+        set((state) => ({
+          aspectPreferenceOverrides: {
+            pinnedPreferredAspects: state.aspectPreferenceOverrides.pinnedPreferredAspects.filter(
+              (item) => item !== aspect,
+            ),
+            alwaysConsiderAspects: state.aspectPreferenceOverrides.alwaysConsiderAspects.filter(
+              (item) => item !== aspect,
+            ),
+            hiddenAspects: [...new Set([...state.aspectPreferenceOverrides.hiddenAspects, aspect])],
+          },
+        })),
+
+      unhideAspect: (aspect) =>
+        set((state) => ({
+          aspectPreferenceOverrides: {
+            ...state.aspectPreferenceOverrides,
+            hiddenAspects: state.aspectPreferenceOverrides.hiddenAspects.filter(
+              (item) => item !== aspect,
+            ),
+          },
+        })),
 
       removeEvent: (eventId) =>
         set((state) => ({
           events: state.events.filter((event) => event.id !== eventId),
         })),
 
-      clearAll: () => set({ events: [] }),
+      clearAll: () =>
+        set({
+          events: [],
+          aspectPreferenceOverrides: emptyAspectPreferenceOverrides,
+        }),
     }),
     {
       name: 'pekopeko-restaurant-feedback',
-      version: 2,
+      version: 3,
       migrate: (persistedState) => {
         const state = persistedState as Partial<RestaurantFeedbackState> | undefined;
 
@@ -140,6 +242,7 @@ export const useRestaurantFeedback = create<RestaurantFeedbackState>()(
                     typeof event.createdAt === 'number' && Number.isFinite(event.createdAt)
                       ? event.createdAt
                       : Date.now(),
+                  aspects: sanitizeAspects(event.aspects),
                   snapshot:
                     event.snapshot && typeof event.snapshot === 'object'
                       ? {
@@ -187,7 +290,16 @@ export const useRestaurantFeedback = create<RestaurantFeedbackState>()(
                 } satisfies FeedbackEvent,
               ];
             }) ?? [],
-        } satisfies Pick<RestaurantFeedbackState, 'events'>;
+          aspectPreferenceOverrides: {
+            pinnedPreferredAspects: sanitizeAspects(
+              state?.aspectPreferenceOverrides?.pinnedPreferredAspects,
+            ),
+            hiddenAspects: sanitizeAspects(state?.aspectPreferenceOverrides?.hiddenAspects),
+            alwaysConsiderAspects: sanitizeAspects(
+              state?.aspectPreferenceOverrides?.alwaysConsiderAspects,
+            ),
+          },
+        } satisfies Pick<RestaurantFeedbackState, 'events' | 'aspectPreferenceOverrides'>;
       },
     },
   ),

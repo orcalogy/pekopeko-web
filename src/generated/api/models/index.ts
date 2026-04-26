@@ -37,6 +37,7 @@ export * from './restaurantSearchItem.ts';
 export * from './restaurantSearchPagination.ts';
 export * from './restaurantSearchPaginationRequest.ts';
 export * from './restaurantSearchQuery.ts';
+export * from './restaurantSearchQueryProviderKeywords.ts';
 export * from './restaurantSearchRequest.ts';
 export * from './restaurantSearchRequestLocation.ts';
 export * from './restaurantSearchResponse.ts';

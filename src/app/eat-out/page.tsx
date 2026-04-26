@@ -38,17 +38,28 @@ const RestaurantMap = dynamic(() => import('../../components/restaurant/Restaura
 });
 
 import { categories } from '@/data/categories';
-import { combineKeywordTerms, normalizeSearchQuery } from '@/lib/llm/keyword-fallback';
-import { formatRestaurantsForRerank } from '@/lib/llm/restaurant-shortlist';
+import { normalizeSearchQuery } from '@/lib/llm/keyword-fallback';
+import {
+  buildRestaurantFactCards,
+  formatRestaurantFactCardsForRerank,
+} from '@/lib/llm/restaurant-shortlist';
 import {
   buildRestaurantTasteProfilePromptSummary,
   deriveRestaurantTasteProfile,
 } from '@/lib/llm/restaurant-taste-profile';
-import type { EatOutRerankEntry, EatOutSemanticIntent } from '@/lib/llm/types';
+import type {
+  EatOutQueryExpansion,
+  EatOutRefinementPatch,
+  EatOutRerankEntry,
+  EatOutSemanticIntent,
+  SearchSessionGoal,
+} from '@/lib/llm/types';
 import { useSemanticSearch } from '@/lib/llm/use-semantic-search';
 import { getRestaurantIdentityKey } from '@/lib/recommendation/identity';
 import { getLatestFeedbackByRestaurant } from '@/lib/recommendation/profile';
+import { pickRestaurantWithMode, type RandomPickMode } from '@/lib/recommendation/random-pick';
 import { rankRestaurants } from '@/lib/recommendation/scoring';
+import type { FeedbackAspect } from '@/lib/recommendation/types';
 import {
   formatSearchRadius,
   formatSearchRadiusMark,
@@ -60,8 +71,8 @@ import {
 } from '@/lib/search-radius';
 import { useLocation } from '@/stores/location';
 import { usePreferences } from '@/stores/preferences';
-import { useRestaurantFeedback } from '@/stores/restaurant-feedback';
-import { useVisited, weightedRandomPick } from '@/stores/visited';
+import { type FeedbackEvent, useRestaurantFeedback } from '@/stores/restaurant-feedback';
+import { useVisited } from '@/stores/visited';
 import type { Locale } from '@/types/food';
 import type { Restaurant } from '@/types/restaurant';
 
@@ -71,6 +82,86 @@ const PERSISTENT_MAP_HEIGHT = 196;
 const MAX_BUDGET_LEVEL = 4;
 const MIN_PARTY_SIZE = 1;
 const MAX_PARTY_SIZE = 12;
+const DEFAULT_REFINEMENT_CHIPS = [
+  'cheap',
+  'high rating',
+  'quiet',
+  'quick meal',
+  'solo-friendly',
+  'group-friendly',
+  'near station',
+  'open now',
+  'surprise me',
+];
+
+function parseProviderKeywordsParam(
+  value: string | null,
+): EatOutQueryExpansion['providerQueries'] | undefined {
+  if (!value) return undefined;
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+
+    const result: EatOutQueryExpansion['providerQueries'] = {};
+    for (const provider of ['google', 'hotpepper', 'amap'] as const) {
+      const queries = (parsed as Partial<Record<typeof provider, unknown>>)[provider];
+      if (!Array.isArray(queries)) continue;
+
+      const normalized = queries
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => normalizeSearchQuery(item))
+        .filter(Boolean)
+        .slice(0, 3);
+      if (normalized.length > 0) {
+        result[provider] = normalized;
+      }
+    }
+
+    return Object.keys(result).length > 0 ? result : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseStringListParam(value: string | null): string[] {
+  if (!value) return [];
+
+  return value
+    .split(',')
+    .map((item) => normalizeSearchQuery(item))
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function normalizeProviderQueryExpansion(
+  expansion: EatOutQueryExpansion['providerQueries'] | undefined,
+): EatOutQueryExpansion['providerQueries'] | undefined {
+  if (!expansion) return undefined;
+
+  const result: EatOutQueryExpansion['providerQueries'] = {};
+  for (const provider of ['google', 'hotpepper', 'amap'] as const) {
+    const queries = expansion[provider]?.map((item) => normalizeSearchQuery(item)).filter(Boolean);
+    if (queries?.length) {
+      result[provider] = [...new Set(queries)].slice(0, 3);
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function getAspectOptionsForFeedback(
+  kind: 'liked_after_visit' | 'disliked_after_visit' | 'not_interested',
+): FeedbackAspect[] {
+  if (kind === 'liked_after_visit') {
+    return ['taste', 'price', 'ambience', 'service', 'solo', 'group', 'access'];
+  }
+  if (kind === 'disliked_after_visit') {
+    return ['taste', 'price', 'distance', 'noise', 'crowd', 'service', 'dietary', 'not_my_mood'];
+  }
+
+  return ['price', 'distance', 'taste', 'not_my_mood', 'crowd'];
+}
 
 export default function EatOutPage() {
   return (
@@ -92,6 +183,9 @@ function EatOutContent() {
   const categoryId = searchParams.get('category');
   const isRandomMode = searchParams.get('random') === 'true';
   const keyword = normalizeSearchQuery(searchParams.get('keyword'));
+  const providerKeywordsParam = searchParams.get('providerKeywords');
+  const softPreferencesParam = searchParams.get('softPreferences');
+  const radiusMParam = searchParams.get('radiusM');
   const hasOpenNowParam = searchParams.has('openNow');
   const openNowFromQuery = searchParams.get('openNow') === 'true';
   const locale = usePreferences((s) => s.locale);
@@ -109,6 +203,7 @@ function EatOutContent() {
     isAnalyzingEatOut,
     isRerankingEatOut,
     analyzeEatOutQuery,
+    analyzeEatOutRefinement,
     rerankEatOutResults,
   } = useSemanticSearch();
 
@@ -130,6 +225,22 @@ function EatOutContent() {
   const [refineQuery, setRefineQuery] = useState('');
   const [refineMode, setRefineMode] = useState<'semantic' | 'keyword' | null>(null);
   const [appliedRefineIntent, setAppliedRefineIntent] = useState<EatOutSemanticIntent | null>(null);
+  const [searchSessionGoal, setSearchSessionGoal] = useState<SearchSessionGoal>({
+    originalQuery: keyword || undefined,
+    currentConstraints: {},
+    softPreferences: [],
+    rejectedAspects: [],
+    acceptedRefinements: [],
+  });
+  const [clarification, setClarification] = useState<
+    EatOutSemanticIntent['clarifyingQuestion'] | null
+  >(null);
+  const [softPreferences, setSoftPreferences] = useState<string[]>(() =>
+    parseStringListParam(softPreferencesParam),
+  );
+  const [providerQueryExpansion, setProviderQueryExpansion] = useState<
+    EatOutQueryExpansion['providerQueries']
+  >(() => parseProviderKeywordsParam(providerKeywordsParam));
   const [tempKeyword, setTempKeyword] = useState<string | null>(null);
   const [tempCategoryId, setTempCategoryId] = useState<string | null>(null);
   const [tempOpenOnly, setTempOpenOnly] = useState<boolean | null>(null);
@@ -141,9 +252,20 @@ function EatOutContent() {
     NonNullable<EatOutSemanticIntent['features']>
   >([]);
   const [aiRerankEntries, setAiRerankEntries] = useState<EatOutRerankEntry[]>([]);
+  const [randomPickMode, setRandomPickMode] = useState<RandomPickMode>('balanced');
+  const [pendingAspectFeedback, setPendingAspectFeedback] = useState<{
+    eventId: string;
+    restaurantId: string;
+    kind: 'liked_after_visit' | 'disliked_after_visit' | 'not_interested';
+  } | null>(null);
 
   const { records: visitedRecords, markVisited } = useVisited();
-  const { events: feedbackEvents, addFeedback } = useRestaurantFeedback();
+  const {
+    events: feedbackEvents,
+    addFeedback,
+    updateFeedbackAspects,
+    aspectPreferenceOverrides,
+  } = useRestaurantFeedback();
   const visitedRecordsRef = useRef(visitedRecords);
 
   useEffect(() => {
@@ -158,22 +280,47 @@ function EatOutContent() {
   const resultsViewportRef = useRef<HTMLDivElement | null>(null);
   const restaurantCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  const clearRefineState = useCallback((keepInput = false) => {
-    setRefineMode(null);
-    setAppliedRefineIntent(null);
-    setTempKeyword(null);
-    setTempCategoryId(null);
-    setTempOpenOnly(null);
-    setTempMinRating(null);
-    setTempMaxBudgetLevel(null);
-    setTempPartySize(null);
-    setTempSortBy(null);
-    setTempRequiredFeatures([]);
+  const clearRefineState = useCallback(
+    (keepInput = false) => {
+      const initialSoftPreferences = parseStringListParam(softPreferencesParam);
 
-    if (!keepInput) {
-      setRefineQuery('');
-    }
-  }, []);
+      setRefineMode(null);
+      setAppliedRefineIntent(null);
+      setClarification(null);
+      setProviderQueryExpansion(parseProviderKeywordsParam(providerKeywordsParam));
+      setSoftPreferences(initialSoftPreferences);
+      setSearchSessionGoal({
+        originalQuery: keyword || undefined,
+        currentConstraints: {
+          ...(categoryId ? { categoryId } : {}),
+          ...(hasOpenNowParam ? { openNow: openNowFromQuery } : {}),
+        },
+        softPreferences: initialSoftPreferences,
+        rejectedAspects: [],
+        acceptedRefinements: [],
+      });
+      setTempKeyword(null);
+      setTempCategoryId(null);
+      setTempOpenOnly(null);
+      setTempMinRating(null);
+      setTempMaxBudgetLevel(null);
+      setTempPartySize(null);
+      setTempSortBy(null);
+      setTempRequiredFeatures([]);
+
+      if (!keepInput) {
+        setRefineQuery('');
+      }
+    },
+    [
+      categoryId,
+      hasOpenNowParam,
+      keyword,
+      openNowFromQuery,
+      providerKeywordsParam,
+      softPreferencesParam,
+    ],
+  );
 
   useEffect(() => {
     setOpenOnly(hasOpenNowParam ? openNowFromQuery : true);
@@ -219,7 +366,11 @@ function EatOutContent() {
       ].join('|'),
     [feedbackEvents, visitedRecords],
   );
-  const effectiveSearchRadiusKm = normalizeSearchRadiusKm(searchRadiusKm);
+  const radiusFromIntentKm =
+    radiusMParam && Number.isFinite(Number(radiusMParam))
+      ? Math.max(0.1, Math.min(10, Number(radiusMParam) / 1000))
+      : null;
+  const effectiveSearchRadiusKm = normalizeSearchRadiusKm(radiusFromIntentKm ?? searchRadiusKm);
   const searchRadiusIndex = getSearchRadiusPresetIndex(effectiveSearchRadiusKm);
   const hasCoordinates = lat != null && lng != null;
   const hasSearchLocation = hasCoordinates && !!provider;
@@ -362,35 +513,40 @@ function EatOutContent() {
     initialFetchDone.current = false;
 
     try {
-      const params = new URLSearchParams({
-        provider,
-        lat: String(lat),
-        lng: String(lng),
-        radius: String(effectiveSearchRadiusKm * 1000),
+      const body = {
         locale,
+        provider,
+        location: { lat, lng },
+        radiusM: Math.round(effectiveSearchRadiusKm * 1000),
+        query: {
+          keyword: effectiveKeyword || undefined,
+          categoryId: effectiveCategoryId ?? undefined,
+          providerKeywords: providerQueryExpansion,
+        },
+        filters: {
+          openNow: effectiveOpenOnly,
+        },
+        sort: {
+          by: 'distance',
+          direction: 'asc',
+        },
+        pagination: {
+          pageSize: 40,
+        },
+      };
+
+      const res = await fetch('/api/v1/restaurants/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       });
-
-      const categoryKeyword = effectiveCategory
-        ? provider === 'hotpepper'
-          ? effectiveCategory.name.ja
-          : effectiveCategory.name[locale]
-        : undefined;
-      const searchKeyword = combineKeywordTerms(effectiveKeyword, categoryKeyword);
-
-      if (searchKeyword) {
-        params.set('keyword', searchKeyword);
-      }
-      if (effectiveOpenOnly) {
-        params.set('openNow', 'true');
-      }
-
-      const res = await fetch(`/api/places/nearby?${params}`);
       if (!res.ok) throw new Error('Search failed');
-      const data: Restaurant[] = await res.json();
+      const data = (await res.json()) as { results?: Restaurant[] };
+      const results = data.results ?? [];
 
-      data.sort((a, b) => a.distance - b.distance);
+      results.sort((a, b) => a.distance - b.distance);
 
-      const filtered = effectiveOpenOnly ? data.filter((r) => r.isOpenNow !== false) : data;
+      const filtered = effectiveOpenOnly ? results.filter((r) => r.isOpenNow !== false) : results;
 
       setAllRestaurants(filtered);
       initialFetchDone.current = true;
@@ -404,10 +560,11 @@ function EatOutContent() {
     lng,
     provider,
     effectiveSearchRadiusKm,
-    effectiveCategory,
+    effectiveCategoryId,
     effectiveKeyword,
     locale,
     effectiveOpenOnly,
+    providerQueryExpansion,
   ]);
 
   const pickRandomRestaurant = useCallback(
@@ -416,8 +573,14 @@ function EatOutContent() {
       if (restaurants.length === 1) return restaurants[0];
 
       for (let i = 0; i < 5; i++) {
-        const next = weightedRandomPick(restaurants, visitedRecordsRef.current);
-        if (!excludeId || next.id !== excludeId) {
+        const next = pickRestaurantWithMode({
+          restaurants,
+          rankedResults: rankedRestaurants,
+          visitRecords: visitedRecordsRef.current,
+          feedbackEvents,
+          mode: randomPickMode,
+        });
+        if (next && (!excludeId || next.id !== excludeId)) {
           return next;
         }
       }
@@ -425,7 +588,7 @@ function EatOutContent() {
       const others = restaurants.filter((restaurant) => restaurant.id !== excludeId);
       return others[Math.floor(Math.random() * others.length)] ?? restaurants[0];
     },
-    [restaurants],
+    [feedbackEvents, randomPickMode, rankedRestaurants, restaurants],
   );
 
   // Auto-pick in random mode when the eligible candidate set changes
@@ -574,35 +737,125 @@ function EatOutContent() {
 
   const handleLikeAfterVisit = useCallback(
     (restaurant: Restaurant) => {
-      addFeedback({
+      const eventId = addFeedback({
         restaurant,
         kind: 'liked_after_visit',
         context: feedbackContext,
       });
+      if (eventId) {
+        setPendingAspectFeedback({
+          eventId,
+          restaurantId: restaurant.id,
+          kind: 'liked_after_visit',
+        });
+      }
     },
     [addFeedback, feedbackContext],
   );
 
   const handleDislikeAfterVisit = useCallback(
     (restaurant: Restaurant) => {
-      addFeedback({
+      const eventId = addFeedback({
         restaurant,
         kind: 'disliked_after_visit',
         context: feedbackContext,
       });
+      if (eventId) {
+        setPendingAspectFeedback({
+          eventId,
+          restaurantId: restaurant.id,
+          kind: 'disliked_after_visit',
+        });
+      }
     },
     [addFeedback, feedbackContext],
   );
 
   const handleNotInterested = useCallback(
     (restaurant: Restaurant) => {
-      addFeedback({
+      const eventId = addFeedback({
         restaurant,
         kind: 'not_interested',
         context: feedbackContext,
       });
+      if (eventId) {
+        setPendingAspectFeedback({ eventId, restaurantId: restaurant.id, kind: 'not_interested' });
+      }
     },
     [addFeedback, feedbackContext],
+  );
+
+  const handleFeedbackAspectToggle = useCallback(
+    (eventId: string, aspect: FeedbackAspect) => {
+      const event = feedbackEvents.find((item) => item.id === eventId);
+      const currentAspects = event?.aspects ?? [];
+      const nextAspects = currentAspects.includes(aspect)
+        ? currentAspects.filter((item) => item !== aspect)
+        : [...currentAspects, aspect];
+
+      updateFeedbackAspects(eventId, nextAspects);
+    },
+    [feedbackEvents, updateFeedbackAspects],
+  );
+
+  const applyRefinementPatch = useCallback(
+    (patch: EatOutRefinementPatch, sourceText: string) => {
+      setRefineMode('semantic');
+      setAppliedRefineIntent(null);
+      setClarification(null);
+
+      if (patch.openNow === true) {
+        setTempOpenOnly(true);
+      }
+      if (patch.maxBudgetLevel != null) {
+        setTempMaxBudgetLevel(
+          maxBudgetLevel > 0
+            ? Math.min(maxBudgetLevel, patch.maxBudgetLevel)
+            : patch.maxBudgetLevel,
+        );
+      }
+      if (patch.partySize != null) {
+        setTempPartySize(Math.max(partySize, patch.partySize));
+      }
+      if (patch.addSoftPreferences?.length) {
+        setSoftPreferences((current) => [
+          ...new Set([...current, ...(patch.addSoftPreferences ?? [])]),
+        ]);
+      }
+      if (patch.removeCuisines?.length) {
+        const removeCuisines = patch.removeCuisines;
+        setSearchSessionGoal((current) => ({
+          ...current,
+          rejectedAspects: [...new Set([...current.rejectedAspects, ...removeCuisines])],
+        }));
+        const termsToRemove = new Set(removeCuisines.map((item) => item.toLowerCase()));
+        const nextKeyword = normalizeSearchQuery(
+          effectiveKeyword
+            .split(/\s+/)
+            .filter((term) => !termsToRemove.has(term.toLowerCase()))
+            .join(' '),
+        );
+        setTempKeyword(nextKeyword || null);
+      }
+      if (
+        patch.spatialIntent?.anchorText &&
+        (patch.spatialIntent.type === 'near_station' ||
+          patch.spatialIntent.type === 'near_landmark')
+      ) {
+        setTempKeyword(
+          normalizeSearchQuery([effectiveKeyword, patch.spatialIntent.anchorText].join(' ')),
+        );
+      }
+
+      setSearchSessionGoal((current) => ({
+        ...current,
+        acceptedRefinements: [...current.acceptedRefinements, sourceText],
+        softPreferences: [
+          ...new Set([...current.softPreferences, ...(patch.addSoftPreferences ?? [])]),
+        ],
+      }));
+    },
+    [effectiveKeyword, maxBudgetLevel, partySize],
   );
 
   const handleRefineSearch = useCallback(async () => {
@@ -613,6 +866,35 @@ function EatOutContent() {
     let nextMode: 'semantic' | 'keyword' = 'keyword';
 
     if (semanticEnabled) {
+      const patchResult = await analyzeEatOutRefinement({
+        query: normalizedRefineQuery,
+        currentGoalSummary: [
+          searchSessionGoal.originalQuery
+            ? `original query: ${searchSessionGoal.originalQuery}`
+            : null,
+          effectiveKeyword ? `keyword: ${effectiveKeyword}` : null,
+          effectiveCategory ? `category: ${effectiveCategory.name.en}` : null,
+          effectiveOpenOnly ? 'open now only' : null,
+          effectiveMaxBudgetLevel > 0
+            ? `budget at most ${'¥'.repeat(effectiveMaxBudgetLevel)}`
+            : null,
+          effectivePartySize > 1 ? `party size ${effectivePartySize}` : null,
+          softPreferences.length > 0 ? `soft preferences: ${softPreferences.join(', ')}` : null,
+          searchSessionGoal.rejectedAspects.length > 0
+            ? `rejected: ${searchSessionGoal.rejectedAspects.join(', ')}`
+            : null,
+          searchSessionGoal.acceptedRefinements.length > 0
+            ? `accepted refinements: ${searchSessionGoal.acceptedRefinements.join(', ')}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join('; '),
+      });
+      if (patchResult.mode === 'semantic' && patchResult.intent) {
+        applyRefinementPatch(patchResult.intent, normalizedRefineQuery);
+        return;
+      }
+
       const result = await analyzeEatOutQuery(normalizedRefineQuery);
       if (result.mode === 'semantic' && result.intent) {
         nextIntent = result.intent;
@@ -621,14 +903,27 @@ function EatOutContent() {
     }
 
     if (!nextIntent) {
-      nextIntent = { keyword: normalizedRefineQuery };
+      nextIntent = { keyword: normalizedRefineQuery, confidence: 0.35 };
+    }
+
+    if (nextIntent.confidence < 0.45 && nextIntent.clarifyingQuestion && !isRandomMode) {
+      setClarification(nextIntent.clarifyingQuestion);
+      return;
     }
 
     setRefineMode(nextMode);
     setAppliedRefineIntent(nextIntent);
-    setTempKeyword(nextIntent.keyword ?? (nextMode === 'keyword' ? normalizedRefineQuery : null));
+    setTempKeyword(
+      nextIntent.keyword ??
+        nextIntent.queryExpansion?.primaryKeyword ??
+        (nextMode === 'keyword' ? normalizedRefineQuery : null),
+    );
     setTempCategoryId(nextIntent.category ?? null);
-    setTempOpenOnly(nextIntent.openNow === true ? true : null);
+    setTempOpenOnly(
+      nextIntent.openNow === true || nextIntent.queryExpansion?.hardFilters?.includes('openNow')
+        ? true
+        : null,
+    );
     setTempMinRating(
       nextIntent.minRating != null ? Math.max(minRating, nextIntent.minRating) : null,
     );
@@ -644,15 +939,61 @@ function EatOutContent() {
     );
     setTempSortBy(nextIntent.sortBy ?? null);
     setTempRequiredFeatures(nextIntent.features ?? []);
-  }, [analyzeEatOutQuery, maxBudgetLevel, minRating, partySize, refineQuery, semanticEnabled]);
+    setProviderQueryExpansion(
+      normalizeProviderQueryExpansion(nextIntent.queryExpansion?.providerQueries),
+    );
+    setSoftPreferences((current) => [
+      ...new Set([
+        ...current,
+        ...(nextIntent.softPreferences ?? []),
+        ...(nextIntent.queryExpansion?.softPreferences ?? []),
+      ]),
+    ]);
+  }, [
+    analyzeEatOutQuery,
+    analyzeEatOutRefinement,
+    applyRefinementPatch,
+    effectiveCategory,
+    effectiveKeyword,
+    effectiveMaxBudgetLevel,
+    effectiveOpenOnly,
+    effectivePartySize,
+    isRandomMode,
+    maxBudgetLevel,
+    minRating,
+    partySize,
+    refineQuery,
+    searchSessionGoal,
+    semanticEnabled,
+    softPreferences,
+  ]);
+
+  const handleRefinementChip = useCallback(
+    (chip: string) => {
+      setClarification(null);
+      setSoftPreferences((current) => [...new Set([...current, chip])]);
+      if (chip === 'cheap') {
+        setTempMaxBudgetLevel(maxBudgetLevel > 0 ? Math.min(maxBudgetLevel, 2) : 2);
+      } else if (chip === 'high rating') {
+        setTempMinRating(Math.max(minRating, 4));
+      } else if (chip === 'open now') {
+        setTempOpenOnly(true);
+      } else if (chip === 'near station') {
+        setTempSortBy('distance');
+      } else if (chip === 'surprise me') {
+        setRandomPickMode('adventure');
+      }
+    },
+    [maxBudgetLevel, minRating],
+  );
 
   const clearAiRerank = useCallback(() => {
     setAiRerankEntries([]);
   }, []);
 
   const tasteProfile = useMemo(
-    () => deriveRestaurantTasteProfile(visitedRecords, feedbackEvents),
-    [feedbackEvents, visitedRecords],
+    () => deriveRestaurantTasteProfile(visitedRecords, feedbackEvents, aspectPreferenceOverrides),
+    [aspectPreferenceOverrides, feedbackEvents, visitedRecords],
   );
   const tasteProfilePromptSummary = useMemo(
     () => buildRestaurantTasteProfilePromptSummary(tasteProfile),
@@ -664,6 +1005,9 @@ function EatOutContent() {
       tasteProfile.avoidedCuisines.length > 0 ||
       tasteProfile.topFeatures.length > 0 ||
       tasteProfile.avoidedFeatures.length > 0 ||
+      tasteProfile.preferredAspects.length > 0 ||
+      tasteProfile.avoidedAspects.length > 0 ||
+      tasteProfile.alwaysConsiderAspects.length > 0 ||
       tasteProfile.preferredPriceLevel != null ||
       tasteProfile.typicalDistanceMeters != null ||
       tasteProfile.totalFeedbackEvents > 0);
@@ -692,6 +1036,9 @@ function EatOutContent() {
     if (tempRequiredFeatures.length > 0) {
       parts.push(`required features: ${tempRequiredFeatures.join(', ')}`);
     }
+    if (softPreferences.length > 0) {
+      parts.push(`soft preferences: ${softPreferences.join(', ')}`);
+    }
 
     parts.push('prefer strong taste-profile matches when otherwise similar');
     parts.push('avoid recently negative or dismissed places');
@@ -704,10 +1051,19 @@ function EatOutContent() {
     effectiveMinRating,
     effectiveOpenOnly,
     effectivePartySize,
+    softPreferences,
     tempRequiredFeatures,
   ]);
 
   const aiRerankCandidates = useMemo(() => restaurants.slice(0, 10), [restaurants]);
+  const aiRerankFactCards = useMemo(
+    () =>
+      buildRestaurantFactCards({
+        restaurants: aiRerankCandidates,
+        deterministicReasonsById,
+      }),
+    [aiRerankCandidates, deterministicReasonsById],
+  );
 
   const handleAiRerank = useCallback(async () => {
     if (aiRerankCandidates.length < 2 || !semanticEnabled) return;
@@ -715,25 +1071,19 @@ function EatOutContent() {
     const result = await rerankEatOutResults({
       goalSummary: aiRerankGoalSummary,
       tasteProfileSummary: tasteProfilePromptSummary,
-      candidateCatalog: formatRestaurantsForRerank({
-        restaurants: aiRerankCandidates,
-        visitRecords: visitedRecords,
-        feedbackEvents,
-        deterministicReasonsById,
-      }),
-      validIds: aiRerankCandidates.map((restaurant) => getRestaurantIdentityKey(restaurant)),
+      candidateCatalog: formatRestaurantFactCardsForRerank(aiRerankFactCards),
+      validIds: aiRerankFactCards.map((card) => card.id),
+      factCards: aiRerankFactCards,
     });
 
     setAiRerankEntries(result.mode === 'semantic' ? result.items : []);
   }, [
     aiRerankCandidates,
+    aiRerankFactCards,
     aiRerankGoalSummary,
-    deterministicReasonsById,
-    feedbackEvents,
     rerankEatOutResults,
     semanticEnabled,
     tasteProfilePromptSummary,
-    visitedRecords,
   ]);
 
   useEffect(() => {
@@ -869,6 +1219,32 @@ function EatOutContent() {
                 placeholder={l.refinePlaceholder}
                 description={semanticEnabled ? l.refineDescriptionAi : l.refineDescription}
               />
+
+              {(clarification || semanticEnabled) && (
+                <Box className="app-panel-muted" p="sm">
+                  <Stack gap="xs">
+                    {clarification && (
+                      <Text size="sm" fw={600}>
+                        {clarification.question}
+                      </Text>
+                    )}
+                    <Group gap="xs" wrap="wrap">
+                      {(clarification?.options ?? DEFAULT_REFINEMENT_CHIPS).map((chip) => (
+                        <Button
+                          key={chip}
+                          variant="light"
+                          color="orange"
+                          size="xs"
+                          radius="xl"
+                          onClick={() => handleRefinementChip(chip)}
+                        >
+                          {chip}
+                        </Button>
+                      ))}
+                    </Group>
+                  </Stack>
+                </Box>
+              )}
 
               {(appliedRefineIntent || refineMode) && (
                 <Stack gap="xs">
@@ -1252,6 +1628,28 @@ function EatOutContent() {
             </Box>
           )}
 
+          {isRandomMode && !loading && !error && restaurants.length > 0 && (
+            <Box className="app-panel-muted" p="sm">
+              <Stack gap="xs">
+                <Text fw={700} size="sm">
+                  {l.randomMode}
+                </Text>
+                <SegmentedControl
+                  value={randomPickMode}
+                  onChange={(value) => setRandomPickMode(value as RandomPickMode)}
+                  data={[
+                    { value: 'safe', label: l.randomSafe },
+                    { value: 'balanced', label: l.randomBalanced },
+                    { value: 'adventure', label: l.randomAdventure },
+                  ]}
+                  fullWidth
+                  size="xs"
+                  radius="xl"
+                />
+              </Stack>
+            </Box>
+          )}
+
           {/* Random mode: highlighted pick */}
           {isRandomMode && !loading && !error && pickedRestaurant && (
             <AnimatePresence mode="wait">
@@ -1563,6 +1961,18 @@ function EatOutContent() {
                         </Button>
                       )}
                     </Group>
+                    {pendingAspectFeedback?.restaurantId === pickedRestaurant.id && (
+                      <FeedbackAspectChips
+                        locale={locale}
+                        event={feedbackEvents.find(
+                          (event) => event.id === pendingAspectFeedback.eventId,
+                        )}
+                        options={getAspectOptionsForFeedback(pendingAspectFeedback.kind)}
+                        onToggle={(aspect) =>
+                          handleFeedbackAspectToggle(pendingAspectFeedback.eventId, aspect)
+                        }
+                      />
+                    )}
                   </Stack>
                 </Card>
               </motion.div>
@@ -1677,6 +2087,36 @@ function EatOutContent() {
                             {l.avoidFeatureBadge(FEATURE_LABELS[feature]?.[locale] ?? feature)}
                           </Badge>
                         ))}
+                        {tasteProfile.preferredAspects.map((aspect) => (
+                          <Badge
+                            key={`aspect-${aspect}`}
+                            variant="outline"
+                            color="orange"
+                            radius="xl"
+                          >
+                            {FEEDBACK_ASPECT_LABELS[aspect][locale]}
+                          </Badge>
+                        ))}
+                        {tasteProfile.avoidedAspects.map((aspect) => (
+                          <Badge
+                            key={`avoid-aspect-${aspect}`}
+                            variant="light"
+                            color="red"
+                            radius="xl"
+                          >
+                            {l.avoidFeatureBadge(FEEDBACK_ASPECT_LABELS[aspect][locale])}
+                          </Badge>
+                        ))}
+                        {tasteProfile.alwaysConsiderAspects.map((aspect) => (
+                          <Badge
+                            key={`always-aspect-${aspect}`}
+                            variant="light"
+                            color="teal"
+                            radius="xl"
+                          >
+                            {FEEDBACK_ASPECT_LABELS[aspect][locale]}
+                          </Badge>
+                        ))}
                         {tasteProfile.preferredPriceLevel != null && (
                           <Badge variant="light" color="green" radius="xl">
                             {l.tasteBudgetBadge(tasteProfile.preferredPriceLevel)}
@@ -1725,36 +2165,56 @@ function EatOutContent() {
                   }}
                 >
                   <Stack gap="sm">
-                    {displayRestaurants.map((r, i) => (
-                      <RestaurantCard
-                        key={r.id}
-                        restaurant={r}
-                        locale={locale}
-                        index={i}
-                        onMarkVisited={handleMarkVisited}
-                        onLikeAfterVisit={handleLikeAfterVisit}
-                        onDislikeAfterVisit={handleDislikeAfterVisit}
-                        onNotInterested={handleNotInterested}
-                        isVisited={visitedByRestaurantKey.has(getRestaurantIdentityKey(r))}
-                        feedbackKind={
-                          latestFeedbackByRestaurantKey.get(getRestaurantIdentityKey(r))?.kind ??
-                          null
-                        }
-                        isActive={r.id === activeRestaurantId}
-                        isPicked={isRandomMode && r.id === pickedRestaurant?.id}
-                        semanticRank={aiRerankById.get(getRestaurantIdentityKey(r))?.rank ?? null}
-                        semanticReason={
-                          aiRerankById.get(getRestaurantIdentityKey(r))?.reason ?? null
-                        }
-                        recommendationReasonCodes={
-                          deterministicReasonsById.get(getRestaurantIdentityKey(r)) ?? []
-                        }
-                        onActivate={(restaurant) => setActiveRestaurantId(restaurant.id)}
-                        rootRef={(node) => {
-                          restaurantCardRefs.current[r.id] = node;
-                        }}
-                      />
-                    ))}
+                    {displayRestaurants.map((r, i) => {
+                      const latestFeedback = latestFeedbackByRestaurantKey.get(
+                        getRestaurantIdentityKey(r),
+                      );
+                      const pendingFeedback =
+                        pendingAspectFeedback?.restaurantId === r.id ? pendingAspectFeedback : null;
+
+                      return (
+                        <Stack key={r.id} gap={6}>
+                          <RestaurantCard
+                            restaurant={r}
+                            locale={locale}
+                            index={i}
+                            onMarkVisited={handleMarkVisited}
+                            onLikeAfterVisit={handleLikeAfterVisit}
+                            onDislikeAfterVisit={handleDislikeAfterVisit}
+                            onNotInterested={handleNotInterested}
+                            isVisited={visitedByRestaurantKey.has(getRestaurantIdentityKey(r))}
+                            feedbackKind={latestFeedback?.kind ?? null}
+                            isActive={r.id === activeRestaurantId}
+                            isPicked={isRandomMode && r.id === pickedRestaurant?.id}
+                            semanticRank={
+                              aiRerankById.get(getRestaurantIdentityKey(r))?.rank ?? null
+                            }
+                            semanticReason={
+                              aiRerankById.get(getRestaurantIdentityKey(r))?.reason ?? null
+                            }
+                            recommendationReasonCodes={
+                              deterministicReasonsById.get(getRestaurantIdentityKey(r)) ?? []
+                            }
+                            onActivate={(restaurant) => setActiveRestaurantId(restaurant.id)}
+                            rootRef={(node) => {
+                              restaurantCardRefs.current[r.id] = node;
+                            }}
+                          />
+                          {pendingFeedback && (
+                            <FeedbackAspectChips
+                              locale={locale}
+                              event={feedbackEvents.find(
+                                (event) => event.id === pendingFeedback.eventId,
+                              )}
+                              options={getAspectOptionsForFeedback(pendingFeedback.kind)}
+                              onToggle={(aspect) =>
+                                handleFeedbackAspectToggle(pendingFeedback.eventId, aspect)
+                              }
+                            />
+                          )}
+                        </Stack>
+                      );
+                    })}
                   </Stack>
                 </Box>
               </Stack>
@@ -1807,6 +2267,11 @@ function useLabels(locale: Locale) {
           : locale === 'ja'
             ? '🎲 ランダムおすすめ'
             : '🎲 Random pick',
+      randomMode:
+        locale === 'zh-CN' ? '随机模式' : locale === 'ja' ? 'ランダムモード' : 'Random mode',
+      randomSafe: locale === 'zh-CN' ? '稳妥' : locale === 'ja' ? '安心' : 'Safe',
+      randomBalanced: locale === 'zh-CN' ? '平衡' : locale === 'ja' ? 'バランス' : 'Balanced',
+      randomAdventure: locale === 'zh-CN' ? '冒险' : locale === 'ja' ? '冒険' : 'Adventure',
       waitingForLocation:
         locale === 'zh-CN' ? '等待定位' : locale === 'ja' ? '位置待機' : 'Waiting for location',
       providerLabel: {
@@ -2057,6 +2522,57 @@ function getSourceBadgeColor(source: NonNullable<Restaurant['source']>) {
     case 'hybrid':
       return 'orange';
   }
+}
+
+const FEEDBACK_ASPECT_LABELS: Record<FeedbackAspect, Record<Locale, string>> = {
+  taste: { 'zh-CN': '口味', ja: '味', en: 'Taste' },
+  price: { 'zh-CN': '价格', ja: '価格', en: 'Price' },
+  distance: { 'zh-CN': '距离', ja: '距離', en: 'Distance' },
+  ambience: { 'zh-CN': '氛围', ja: '雰囲気', en: 'Ambience' },
+  noise: { 'zh-CN': '吵', ja: '騒音', en: 'Noise' },
+  crowd: { 'zh-CN': '拥挤', ja: '混雑', en: 'Crowd' },
+  service: { 'zh-CN': '服务', ja: 'サービス', en: 'Service' },
+  solo: { 'zh-CN': '一人', ja: 'ひとり', en: 'Solo' },
+  group: { 'zh-CN': '多人', ja: 'グループ', en: 'Group' },
+  dietary: { 'zh-CN': '饮食限制', ja: '食事制限', en: 'Dietary' },
+  access: { 'zh-CN': '交通', ja: 'アクセス', en: 'Access' },
+  opening_hours: { 'zh-CN': '营业时间', ja: '営業時間', en: 'Hours' },
+  not_my_mood: { 'zh-CN': '不合心情', ja: '気分違い', en: 'Not mood' },
+};
+
+function FeedbackAspectChips({
+  locale,
+  event,
+  options,
+  onToggle,
+}: {
+  locale: Locale;
+  event?: FeedbackEvent;
+  options: FeedbackAspect[];
+  onToggle: (aspect: FeedbackAspect) => void;
+}) {
+  if (!event) return null;
+
+  const selected = new Set(event.aspects ?? []);
+
+  return (
+    <Box className="app-panel-muted" p="xs">
+      <Group gap="xs" wrap="wrap">
+        {options.map((aspect) => (
+          <Button
+            key={aspect}
+            variant={selected.has(aspect) ? 'filled' : 'light'}
+            color={selected.has(aspect) ? 'orange' : 'gray'}
+            size="xs"
+            radius="xl"
+            onClick={() => onToggle(aspect)}
+          >
+            {FEEDBACK_ASPECT_LABELS[aspect][locale]}
+          </Button>
+        ))}
+      </Group>
+    </Box>
+  );
 }
 
 function getFeedbackBadgeColor(

@@ -65,6 +65,7 @@ const GOOGLE_LANGUAGE_CODE: Record<AppLocale, string> = {
 };
 
 const RESTAURANT_IDENTITY_ENRICH_CONCURRENCY = 1;
+const QUERY_EXPANSION_MIN_RESULTS = 8;
 
 export async function searchRestaurants(params: {
   input: RestaurantSearchInput;
@@ -144,6 +145,7 @@ async function createInitialRestaurantSearchSnapshot(params: {
     locale,
     primaryProvider: resolved.provider,
   });
+  const providerKeywords = params.input.query?.providerKeywords ?? undefined;
 
   const providerResults = await fetchProviderResults({
     locale,
@@ -162,6 +164,34 @@ async function createInitialRestaurantSearchSnapshot(params: {
     partySize,
     requiredFeatures,
   });
+
+  if (normalized.length < QUERY_EXPANSION_MIN_RESULTS && providerKeywords) {
+    const expandedResults = await fetchExpandedProviderResults({
+      locale,
+      lat,
+      lng,
+      radiusM,
+      categoryId: params.input.query?.categoryId ?? undefined,
+      baseKeyword: params.input.query?.keyword ?? undefined,
+      providerKeywords,
+      providerPlan: resolved.providerPlan,
+    });
+
+    if (expandedResults.successes.length > 0) {
+      normalized = mergeProviderResults(resolved.providerPlan, [
+        ...providerResults.successes,
+        ...expandedResults.successes,
+      ]);
+      normalized = applyRestaurantFilters(normalized, {
+        openNow,
+        minRating,
+        maxPriceLevel,
+        partySize,
+        requiredFeatures,
+      });
+    }
+  }
+
   normalized = sortRestaurants(normalized, sortBy, sortDirection);
 
   const appliedFilters: AppliedRestaurantFilters = {
@@ -323,6 +353,70 @@ async function fetchProviderResults(params: {
   return { successes, providerStatuses };
 }
 
+async function fetchExpandedProviderResults(params: {
+  providerPlan: MapProviderType[];
+  locale: AppLocale;
+  lat: number;
+  lng: number;
+  radiusM: number;
+  baseKeyword?: string | null;
+  categoryId?: string;
+  providerKeywords: Partial<Record<MapProviderType, string[]>>;
+}): Promise<{ successes: Array<{ provider: MapProviderType; results: Restaurant[] }> }> {
+  const searches: Array<{ provider: MapProviderType; keyword: string }> = [];
+
+  for (const provider of params.providerPlan) {
+    const keywords = buildExpandedProviderKeywords({
+      provider,
+      locale: params.locale,
+      categoryId: params.categoryId,
+      baseKeyword: params.baseKeyword ?? undefined,
+      providerKeywords: params.providerKeywords[provider] ?? [],
+    });
+
+    for (const keyword of keywords) {
+      searches.push({ provider, keyword });
+    }
+  }
+
+  const boundedSearches = searches.slice(0, 6);
+  if (boundedSearches.length === 0) {
+    return { successes: [] };
+  }
+
+  const settled = await Promise.allSettled(
+    boundedSearches.map(async ({ provider, keyword }) => ({
+      provider,
+      results: await searchSingleProvider(
+        provider,
+        {
+          lat: params.lat,
+          lng: params.lng,
+          radius: params.radiusM,
+          keyword,
+        },
+        params.locale,
+      ),
+    })),
+  );
+
+  const successes: Array<{ provider: MapProviderType; results: Restaurant[] }> = [];
+  settled.forEach((result, index) => {
+    if (result.status === 'fulfilled') {
+      successes.push(result.value);
+      return;
+    }
+
+    const failed = boundedSearches[index];
+    console.error(
+      `[api] ${failed.provider} provider expansion failed for "${failed.keyword}":`,
+      result.reason,
+    );
+  });
+
+  return { successes };
+}
+
 async function searchSingleProvider(
   provider: MapProviderType,
   options: {
@@ -374,11 +468,22 @@ function mergeProviderResults(
   providerPlan: MapProviderType[],
   successes: Array<{ provider: MapProviderType; results: Restaurant[] }>,
 ): Restaurant[] {
-  const byProvider = new Map(successes.map((entry) => [entry.provider, entry.results]));
+  const byProvider = new Map<MapProviderType, Restaurant[]>();
+
+  for (const entry of successes) {
+    byProvider.set(entry.provider, [
+      ...(byProvider.get(entry.provider) ?? []),
+      ...dedupeRestaurants(entry.results),
+    ]);
+  }
 
   if (providerPlan.includes('hotpepper') && providerPlan.includes('google')) {
-    const googleResults = byProvider.get('google');
-    const hotpepperResults = byProvider.get('hotpepper');
+    const googleResults = byProvider.get('google')?.length
+      ? dedupeRestaurants(byProvider.get('google') ?? [])
+      : undefined;
+    const hotpepperResults = byProvider.get('hotpepper')?.length
+      ? dedupeRestaurants(byProvider.get('hotpepper') ?? [])
+      : undefined;
 
     if (googleResults && hotpepperResults) {
       return mergeResults(googleResults, hotpepperResults);
@@ -387,7 +492,7 @@ function mergeProviderResults(
     return googleResults ?? hotpepperResults ?? [];
   }
 
-  return successes[0]?.results ?? [];
+  return dedupeRestaurants(providerPlan.flatMap((provider) => byProvider.get(provider) ?? []));
 }
 
 function buildSearchKeyword(params: {
@@ -404,6 +509,53 @@ function buildSearchKeyword(params: {
     : undefined;
 
   return combineKeywordTerms(normalizeSearchQuery(params.keyword), categoryKeyword);
+}
+
+function buildExpandedProviderKeywords(params: {
+  provider: MapProviderType;
+  locale: AppLocale;
+  baseKeyword?: string;
+  categoryId?: string;
+  providerKeywords: string[];
+}): string[] {
+  const seen = new Set<string>();
+  const keywords: string[] = [];
+
+  for (const keyword of params.providerKeywords) {
+    const combined = buildSearchKeyword({
+      primaryProvider: params.provider,
+      locale: params.locale,
+      keyword: combineKeywordTerms(params.baseKeyword, keyword),
+      categoryId: params.categoryId,
+    });
+    const normalized = normalizeSearchQuery(combined).toLocaleLowerCase();
+    if (!combined || !normalized || seen.has(normalized)) continue;
+
+    seen.add(normalized);
+    keywords.push(combined);
+    if (keywords.length >= 3) break;
+  }
+
+  return keywords;
+}
+
+function dedupeRestaurants(restaurants: Restaurant[]): Restaurant[] {
+  const seen = new Set<string>();
+  const deduped: Restaurant[] = [];
+
+  for (const restaurant of restaurants) {
+    const refs = restaurant.providerRefs
+      ?.map((ref) => `${ref.provider}:${ref.providerId}`)
+      .sort()
+      .join('|');
+    const key = refs || `${restaurant.source ?? 'unknown'}:${restaurant.id}`;
+    if (!key || seen.has(key)) continue;
+
+    seen.add(key);
+    deduped.push(restaurant);
+  }
+
+  return deduped;
 }
 
 function applyRestaurantFilters(

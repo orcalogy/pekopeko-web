@@ -96,6 +96,7 @@ export interface RestaurantSearchInput {
   query?: {
     keyword?: string | null;
     categoryId?: string | null;
+    providerKeywords?: Partial<Record<MapProviderType, string[]>> | null;
   };
   filters?: {
     openNow?: boolean;

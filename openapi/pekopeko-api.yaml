@@ -864,6 +864,30 @@ components:
           type: string
         categoryId:
           type: string
+        providerKeywords:
+          type: object
+          additionalProperties: false
+          description: >
+            Optional bounded provider-specific keyword expansion. Clients should send these only as
+            a supplement to the base keyword when a semantic parser has high enough confidence that
+            extra provider terms may improve recall. The server may ignore these terms when the
+            base search already has enough results.
+          properties:
+            google:
+              type: array
+              maxItems: 3
+              items:
+                type: string
+            hotpepper:
+              type: array
+              maxItems: 3
+              items:
+                type: string
+            amap:
+              type: array
+              maxItems: 3
+              items:
+                type: string
     RestaurantSearchFilters:
       type: object
       additionalProperties: false

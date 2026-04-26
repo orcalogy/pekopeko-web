@@ -21,6 +21,7 @@ test('prefers semantic intent fields when present', () => {
       keyword: 'ramen',
       category: 'noodles',
       openNow: true,
+      confidence: 0.9,
     },
     random: true,
   });
@@ -29,6 +30,26 @@ test('prefers semantic intent fields when present', () => {
   assert.equal(params.get('category'), 'noodles');
   assert.equal(params.get('openNow'), 'true');
   assert.equal(params.get('random'), 'true');
+});
+
+test('uses query expansion primary keyword when intent keyword is absent', () => {
+  const params = buildEatOutNavigationParams({
+    query: 'somewhere quiet for work',
+    intent: {
+      confidence: 0.6,
+      queryExpansion: {
+        primaryKeyword: 'cafe',
+        hardFilters: ['openNow'],
+        providerQueries: {
+          google: ['quiet cafe'],
+        },
+      },
+    },
+  });
+
+  assert.equal(params.get('keyword'), 'cafe');
+  assert.equal(params.get('openNow'), 'true');
+  assert.equal(params.get('providerKeywords'), '{"google":["quiet cafe"]}');
 });
 
 test('keeps random-only navigation when no prompt is provided', () => {

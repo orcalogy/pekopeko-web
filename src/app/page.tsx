@@ -31,6 +31,7 @@ import { foods } from '@/data/foods';
 import { filterFoods } from '@/lib/food-filter';
 import { buildEatOutNavigationParams } from '@/lib/llm/eat-out-navigation';
 import { filterFoodsByKeyword, normalizeSearchQuery } from '@/lib/llm/keyword-fallback';
+import type { EatOutSemanticIntent } from '@/lib/llm/types';
 import { useSemanticSearch } from '@/lib/llm/use-semantic-search';
 import { getCurrentSeason } from '@/lib/season-utils';
 import { getCurrentMealTime } from '@/lib/time-utils';
@@ -95,6 +96,9 @@ export default function Home() {
   const [showResult, setShowResult] = useState(false);
   const [cookQuery, setCookQuery] = useState('');
   const [eatOutQuery, setEatOutQuery] = useState('');
+  const [eatOutClarification, setEatOutClarification] = useState<
+    EatOutSemanticIntent['clarifyingQuestion'] | null
+  >(null);
   const [eatOutSubmitTarget, setEatOutSubmitTarget] = useState<'search' | 'random' | null>(null);
   const [cookSemanticIntent, setCookSemanticIntent] = useState<{
     keyword?: string;
@@ -193,21 +197,36 @@ export default function Home() {
     [router],
   );
 
-  const buildEatOutRouteParams = useCallback(async () => {
-    if (!normalizedEatOutQuery) {
-      return buildEatOutNavigationParams({});
-    }
+  const buildEatOutRouteParams = useCallback(
+    async (target: 'search' | 'random', queryOverride?: string) => {
+      const searchQuery = normalizeSearchQuery(queryOverride ?? normalizedEatOutQuery);
+      if (!searchQuery) {
+        return buildEatOutNavigationParams({});
+      }
 
-    if (!semanticEnabled) {
-      return buildEatOutNavigationParams({ query: normalizedEatOutQuery });
-    }
+      if (!semanticEnabled) {
+        return buildEatOutNavigationParams({ query: searchQuery });
+      }
 
-    const result = await analyzeEatOutQuery(normalizedEatOutQuery);
-    return buildEatOutNavigationParams({
-      query: normalizedEatOutQuery,
-      intent: result.intent,
-    });
-  }, [analyzeEatOutQuery, normalizedEatOutQuery, semanticEnabled]);
+      const result = await analyzeEatOutQuery(searchQuery);
+      if (
+        target !== 'random' &&
+        result.intent?.confidence != null &&
+        result.intent.confidence < 0.45 &&
+        result.intent.clarifyingQuestion
+      ) {
+        setEatOutClarification(result.intent.clarifyingQuestion);
+        return null;
+      }
+
+      setEatOutClarification(null);
+      return buildEatOutNavigationParams({
+        query: searchQuery,
+        intent: result.intent,
+      });
+    },
+    [analyzeEatOutQuery, normalizedEatOutQuery, semanticEnabled],
+  );
 
   const navigateToEatOut = useCallback(
     async (target: 'search' | 'random') => {
@@ -216,7 +235,8 @@ export default function Home() {
       setEatOutSubmitTarget(target);
 
       try {
-        const params = await buildEatOutRouteParams();
+        const params = await buildEatOutRouteParams(target);
+        if (!params) return;
 
         if (target === 'random') {
           params.set('random', 'true');
@@ -234,6 +254,26 @@ export default function Home() {
   const handleRandomRestaurant = useCallback(() => {
     return navigateToEatOut('random');
   }, [navigateToEatOut]);
+
+  const handleEatOutClarificationOption = useCallback(
+    async (option: string) => {
+      const nextQuery = normalizeSearchQuery(`${eatOutQuery} ${option}`);
+      setEatOutQuery(nextQuery);
+      setEatOutClarification(null);
+      setEatOutSubmitTarget('search');
+
+      try {
+        const params = await buildEatOutRouteParams('search', nextQuery);
+        if (!params) return;
+
+        const query = params.toString();
+        router.push(query ? `/eat-out?${query}` : '/eat-out');
+      } finally {
+        setEatOutSubmitTarget(null);
+      }
+    },
+    [buildEatOutRouteParams, eatOutQuery, router],
+  );
 
   const handleCookMoodChange = useCallback(
     (mood: Food['moods'][number] | null) => {
@@ -702,7 +742,10 @@ export default function Home() {
 
                   <SmartSearchInput
                     value={eatOutQuery}
-                    onChange={setEatOutQuery}
+                    onChange={(value) => {
+                      setEatOutQuery(value);
+                      setEatOutClarification(null);
+                    }}
                     onSubmit={handleEatOutSearch}
                     loading={
                       semanticEnabled && isAnalyzingEatOut && eatOutSubmitTarget === 'search'
@@ -732,6 +775,30 @@ export default function Home() {
                             : 'Type what you want and jump straight to nearby results.'
                     }
                   />
+
+                  {eatOutClarification && (
+                    <Box className="app-panel-muted" p="sm" w="100%">
+                      <Stack gap="xs">
+                        <Text size="sm" fw={600}>
+                          {eatOutClarification.question}
+                        </Text>
+                        <Group gap="xs" wrap="wrap">
+                          {eatOutClarification.options.map((option) => (
+                            <Button
+                              key={option}
+                              variant="light"
+                              color="orange"
+                              size="xs"
+                              radius="xl"
+                              onClick={() => handleEatOutClarificationOption(option)}
+                            >
+                              {option}
+                            </Button>
+                          ))}
+                        </Group>
+                      </Stack>
+                    </Box>
+                  )}
 
                   <Button
                     size="md"

@@ -8,6 +8,7 @@ Name | Type
 ------------ | -------------
 `keyword` | string
 `categoryId` | string
+`providerKeywords` | [RestaurantSearchQueryProviderKeywords](RestaurantSearchQueryProviderKeywords.md)
 
 ## Example
 
@@ -18,6 +19,7 @@ import type { RestaurantSearchQuery } from ''
 const example = {
   "keyword": null,
   "categoryId": null,
+  "providerKeywords": null,
 } satisfies RestaurantSearchQuery
 
 console.log(example)
