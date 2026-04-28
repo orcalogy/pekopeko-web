@@ -157,7 +157,8 @@ If you want a clean dev-only rerun of the registry tests, truncating `restaurant
 - Local semantic search is optional and default-off:
   - app-level kill switch: `NEXT_PUBLIC_ENABLE_LLM=false`
   - user-level toggle: Settings > `AI Search`
-  - model runtime: `@mlc-ai/web-llm` with `SmolLM2-135M-Instruct-q0f16-MLC`
+  - model runtime: `@mlc-ai/web-llm` with `Qwen3.5-0.8B-q0f16-MLC`
+  - default model record: injected through `src/lib/llm/model-config.ts`
   - failure mode: always falls back to deterministic keyword search
 
 ## Local LLM Search
@@ -167,7 +168,8 @@ If you want a clean dev-only rerun of the registry tests, truncating `restaurant
 - `Eat Out` always supports keyword search from the home screen.
 - When `AI Search` is enabled, the eat-out query can infer `keyword`, `category`, and `openNow`, then routes into `/eat-out` with those query params.
 - Model initialization is lazy. No worker starts and no model download begins until the user submits an AI-enabled search.
-- Settings shows support/runtime state, cache presence, and a `Clear model cache` action.
+- The Qwen3.5 default uses a custom WebLLM app config for engine creation and model cache checks.
+- Settings shows support/runtime state, cache presence, and a `Clear model cache` action. Legacy default model preferences migrate to the current default while custom model ids are preserved.
 - Service worker runtime caching keeps downloaded model artifacts reusable across sessions.
 
 ## Project Structure

@@ -24,6 +24,8 @@ The implementation keeps the original local-first foundation:
 
 - `src/lib/llm/*` contains prompts, manual JSON parsers, WebLLM hook wiring, and restaurant
   shortlist/taste-profile helpers.
+- `src/lib/llm/availability.ts` owns the default and legacy model ids, and
+  `src/lib/llm/model-config.ts` injects the Qwen3.5 model record into the WebLLM app config.
 - `src/app/eat-out/page.tsx` owns location-backed restaurant search, client filters, deterministic
   ranking, random mode, refinement input, and optional local AI reranking.
 - `src/lib/api/restaurants.ts` powers `/api/v1/restaurants/search` and the legacy nearby route.
@@ -407,6 +409,8 @@ for deterministic tests.
 
 - If AI Search is disabled, all new UI falls back to keyword search and deterministic ranking.
 - If local model initialization fails, existing LLM runtime fallback remains in effect.
+- Engine creation, cache checks, and cache deletion must use the same custom WebLLM app config so
+  non-prebuilt default models resolve consistently.
 - If intent parsing fails, keep keyword search.
 - If query expansion fails, keep base search results.
 - If rerank output is invalid, keep deterministic order.
