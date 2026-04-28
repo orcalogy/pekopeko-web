@@ -1,5 +1,6 @@
 import type { InitProgressReport, WebWorkerMLCEngine } from '@mlc-ai/web-llm';
 import { normalizeConfiguredLlmModel } from '@/lib/llm/availability';
+import { buildLlmAppConfig } from '@/lib/llm/model-config';
 import type { LlmSupportResult } from '@/lib/llm/types';
 import { useLlmStore } from '@/stores/llm';
 
@@ -95,7 +96,9 @@ export async function ensureLlmEngine(
 
   const nextEnginePromise = (async () => {
     const webllm = await loadWebLlmModule();
+    const appConfig = buildLlmAppConfig(webllm.prebuiltAppConfig);
     return webllm.CreateWebWorkerMLCEngine(worker, modelId, {
+      appConfig,
       initProgressCallback: (report) => {
         if (token !== lifecycleToken) return;
         handleInitProgress(modelId, report, task);
@@ -166,7 +169,10 @@ export async function shutdownLlmEngine() {
 export async function refreshLlmModelCacheStatus(modelInput: string): Promise<boolean> {
   const modelId = normalizeConfiguredLlmModel(modelInput);
   const webllm = await loadWebLlmModule();
-  const isCached = await webllm.hasModelInCache(modelId);
+  const isCached = await webllm.hasModelInCache(
+    modelId,
+    buildLlmAppConfig(webllm.prebuiltAppConfig),
+  );
   getRuntimeStore().setModelCached(isCached);
   return isCached;
 }
@@ -175,7 +181,7 @@ export async function clearLlmModelCache(modelInput: string) {
   const modelId = normalizeConfiguredLlmModel(modelInput);
   await shutdownLlmEngine();
   const webllm = await loadWebLlmModule();
-  await webllm.deleteModelAllInfoInCache(modelId);
+  await webllm.deleteModelAllInfoInCache(modelId, buildLlmAppConfig(webllm.prebuiltAppConfig));
   getRuntimeStore().setModelCached(false);
   getRuntimeStore().setIdle('Local model cache cleared.');
 }

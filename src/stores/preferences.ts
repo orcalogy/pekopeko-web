@@ -68,7 +68,7 @@ export const usePreferences = create<PreferencesState>()(
     }),
     {
       name: 'pekopeko-preferences',
-      version: 2,
+      version: 3,
       migrate: (persistedState) => {
         const state = persistedState as Partial<PreferencesState> | undefined;
         const normalizedPersistedModel = normalizeConfiguredLlmModel(state?.llmModel);
