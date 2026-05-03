@@ -5,10 +5,12 @@ import { mockRestaurants } from '../src/lib/llm/restaurant-fixtures.test-data';
 
 const MODEL_TIMEOUT_MS = Number(process.env.PLAYWRIGHT_LLM_MODEL_TIMEOUT_MS ?? 35 * 60 * 1000);
 const FLOW_TIMEOUT_MS = Number(process.env.PLAYWRIGHT_LLM_FLOW_TIMEOUT_MS ?? 120 * 1000);
+const fixtureSearchBodies: unknown[] = [];
 
 test.describe.configure({ mode: 'serial' });
 
 test.beforeEach(async ({ page }) => {
+  fixtureSearchBodies.length = 0;
   await routeFixtureRestaurants(page);
 });
 
@@ -45,8 +47,16 @@ test('fixture-backed Qwen3.5 local LLM flow covers settings, cook, search, refin
   await page.getByTestId('eat-out-query-input').fill(eatOutCase.query);
   await page.getByTestId('eat-out-search-ai').click();
   await expect(page).toHaveURL(/\/eat-out\?/u, { timeout: FLOW_TIMEOUT_MS });
-  await expect(page).toHaveURL(/keyword=cafe/u);
+  await expect(page).toHaveURL(/localIntent=/u);
+  await expect(page).not.toHaveURL(/keyword=/u);
+  await expect(page).not.toHaveURL(/category=/u);
   await expect(page.getByText('Desk Cafe', { exact: true }).last()).toBeVisible();
+  const semanticSearchBody = fixtureSearchBodies.at(-1) as
+    | { query?: { keyword?: string; categoryId?: string; providerKeywords?: unknown } }
+    | undefined;
+  expect(semanticSearchBody?.query?.keyword).toBeUndefined();
+  expect(semanticSearchBody?.query?.categoryId).toBeUndefined();
+  expect(semanticSearchBody?.query?.providerKeywords).toBeUndefined();
   console.log('[llm-e2e] eat-out semantic search applied');
 
   await expect(page.getByTestId('eat-out-rerank-ai')).toBeEnabled();
@@ -190,6 +200,7 @@ async function routeFixtureRestaurants(page: Page) {
   });
 
   await page.route('**/api/v1/restaurants/search', async (route) => {
+    fixtureSearchBodies.push(route.request().postDataJSON());
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({

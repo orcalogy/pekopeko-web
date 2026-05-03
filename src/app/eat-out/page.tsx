@@ -38,6 +38,11 @@ const RestaurantMap = dynamic(() => import('../../components/restaurant/Restaura
 });
 
 import { categories } from '@/data/categories';
+import {
+  EAT_OUT_LOCAL_INTENT_PARAM,
+  type EatOutLocalIntentState,
+  readEatOutLocalIntentState,
+} from '@/lib/llm/eat-out-navigation';
 import { normalizeSearchQuery } from '@/lib/llm/keyword-fallback';
 import {
   buildRestaurantFactCards,
@@ -136,6 +141,26 @@ function parseStringListParam(value: string | null): string[] {
     .slice(0, 8);
 }
 
+function mergeStringLists(...lists: string[][]): string[] {
+  return [
+    ...new Set(
+      lists
+        .flat()
+        .map((item) => normalizeSearchQuery(item))
+        .filter(Boolean),
+    ),
+  ].slice(0, 8);
+}
+
+function getIntentSoftPreferences(intent: EatOutSemanticIntent | null | undefined): string[] {
+  if (!intent) return [];
+
+  return mergeStringLists(
+    intent.softPreferences ?? [],
+    intent.queryExpansion?.softPreferences ?? [],
+  );
+}
+
 function normalizeProviderQueryExpansion(
   expansion: EatOutQueryExpansion['providerQueries'] | undefined,
 ): EatOutQueryExpansion['providerQueries'] | undefined {
@@ -207,11 +232,34 @@ function EatOutContent() {
   const categoryId = searchParams.get('category');
   const isRandomMode = searchParams.get('random') === 'true';
   const keyword = normalizeSearchQuery(searchParams.get('keyword'));
+  const localIntentId = searchParams.get(EAT_OUT_LOCAL_INTENT_PARAM);
   const providerKeywordsParam = searchParams.get('providerKeywords');
   const softPreferencesParam = searchParams.get('softPreferences');
   const radiusMParam = searchParams.get('radiusM');
   const hasOpenNowParam = searchParams.has('openNow');
   const openNowFromQuery = searchParams.get('openNow') === 'true';
+  const [localIntentState, setLocalIntentState] = useState<EatOutLocalIntentState | null>(null);
+  const localIntent = localIntentState?.intent ?? null;
+  const localOriginalQuery = normalizeSearchQuery(localIntentState?.originalQuery);
+  const localIntentKeyword = normalizeSearchQuery(
+    localIntent?.keyword ?? localIntent?.queryExpansion?.primaryKeyword,
+  );
+  const localIntentCategoryId = categories.some((category) => category.id === localIntent?.category)
+    ? localIntent?.category
+    : null;
+  const localIntentSoftPreferences = useMemo(
+    () => getIntentSoftPreferences(localIntent),
+    [localIntent],
+  );
+  const localIntentSignature = useMemo(
+    () => JSON.stringify(localIntentState ?? null),
+    [localIntentState],
+  );
+  const serverProviderQueryExpansion = useMemo(
+    () => parseProviderKeywordsParam(providerKeywordsParam),
+    [providerKeywordsParam],
+  );
+  const isLocalIntentSearch = !!localIntentId && !keyword;
   const locale = usePreferences((s) => s.locale);
   const searchRadiusKm = usePreferences((s) => s.searchRadiusKm);
   const setSearchRadius = usePreferences((s) => s.setSearchRadius);
@@ -253,9 +301,12 @@ function EatOutContent() {
   const [rerankAiNotice, setRerankAiNotice] = useState<string | null>(null);
   const [appliedRefineIntent, setAppliedRefineIntent] = useState<EatOutSemanticIntent | null>(null);
   const [searchSessionGoal, setSearchSessionGoal] = useState<SearchSessionGoal>({
-    originalQuery: keyword || undefined,
+    originalQuery: localOriginalQuery || keyword || undefined,
     currentConstraints: {},
-    softPreferences: [],
+    softPreferences: mergeStringLists(
+      parseStringListParam(softPreferencesParam),
+      localIntentSoftPreferences,
+    ),
     rejectedAspects: [],
     acceptedRefinements: [],
   });
@@ -301,6 +352,10 @@ function EatOutContent() {
     visitedRecordsRef.current = visitedRecords;
   }, [visitedRecords]);
 
+  useEffect(() => {
+    setLocalIntentState(readEatOutLocalIntentState(localIntentId));
+  }, [localIntentId]);
+
   // Filters
   const [openOnly, setOpenOnly] = useState(hasOpenNowParam ? openNowFromQuery : true);
   const [sortBy, setSortBy] = useState<SortBy>('distance');
@@ -311,7 +366,10 @@ function EatOutContent() {
 
   const clearRefineState = useCallback(
     (keepInput = false) => {
-      const initialSoftPreferences = parseStringListParam(softPreferencesParam);
+      const initialSoftPreferences = mergeStringLists(
+        parseStringListParam(softPreferencesParam),
+        localIntentSoftPreferences,
+      );
 
       setRefineMode(null);
       setRefineAiNotice(null);
@@ -321,9 +379,11 @@ function EatOutContent() {
       setProviderQueryExpansion(parseProviderKeywordsParam(providerKeywordsParam));
       setSoftPreferences(initialSoftPreferences);
       setSearchSessionGoal({
-        originalQuery: keyword || undefined,
+        originalQuery: localOriginalQuery || keyword || undefined,
         currentConstraints: {
-          ...(categoryId ? { categoryId } : {}),
+          ...((localIntentCategoryId ?? categoryId)
+            ? { categoryId: localIntentCategoryId ?? categoryId ?? undefined }
+            : {}),
           ...(hasOpenNowParam ? { openNow: openNowFromQuery } : {}),
         },
         softPreferences: initialSoftPreferences,
@@ -348,6 +408,10 @@ function EatOutContent() {
       categoryId,
       hasOpenNowParam,
       keyword,
+      localIntentCategoryId,
+      localIntentSignature,
+      localIntentSoftPreferences,
+      localOriginalQuery,
       openNowFromQuery,
       providerKeywordsParam,
       radiusMParam,
@@ -361,15 +425,19 @@ function EatOutContent() {
 
   const baseSearchResetKey = `${categoryId ?? ''}|${keyword}|${hasOpenNowParam ? '1' : '0'}|${
     openNowFromQuery ? '1' : '0'
-  }|${providerKeywordsParam ?? ''}|${softPreferencesParam ?? ''}|${radiusMParam ?? ''}`;
+  }|${providerKeywordsParam ?? ''}|${softPreferencesParam ?? ''}|${radiusMParam ?? ''}|${
+    localIntentId ?? ''
+  }|${localIntentSignature}`;
 
   useEffect(() => {
     void baseSearchResetKey;
     clearRefineState();
   }, [baseSearchResetKey, clearRefineState]);
 
-  const effectiveKeyword = tempKeyword ?? keyword;
-  const effectiveCategoryId = tempCategoryId ?? categoryId;
+  const effectiveKeyword = tempKeyword ?? localIntentKeyword ?? keyword;
+  const serverSearchKeyword = keyword;
+  const serverSearchCategoryId = isLocalIntentSearch ? null : categoryId;
+  const effectiveCategoryId = tempCategoryId ?? localIntentCategoryId ?? categoryId;
   const effectiveCategory = categories.find((c) => c.id === effectiveCategoryId);
   const effectiveOpenOnly = tempOpenOnly ?? openOnly;
   const effectiveMinRating = tempMinRating ?? minRating;
@@ -569,9 +637,9 @@ function EatOutContent() {
         location: { lat, lng },
         radiusM: Math.round(effectiveSearchRadiusKm * 1000),
         query: {
-          keyword: effectiveKeyword || undefined,
-          categoryId: effectiveCategoryId ?? undefined,
-          providerKeywords: providerQueryExpansion,
+          keyword: serverSearchKeyword || undefined,
+          categoryId: serverSearchCategoryId ?? undefined,
+          providerKeywords: serverProviderQueryExpansion,
         },
         filters: {
           openNow: effectiveOpenOnly,
@@ -610,11 +678,11 @@ function EatOutContent() {
     lng,
     provider,
     effectiveSearchRadiusKm,
-    effectiveCategoryId,
-    effectiveKeyword,
+    serverSearchCategoryId,
+    serverSearchKeyword,
     locale,
     effectiveOpenOnly,
-    providerQueryExpansion,
+    serverProviderQueryExpansion,
   ]);
 
   const pickRandomRestaurant = useCallback(

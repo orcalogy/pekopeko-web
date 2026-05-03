@@ -29,7 +29,10 @@ import { SmartSearchInput } from '@/components/search/SmartSearchInput';
 import { categories } from '@/data/categories';
 import { foods } from '@/data/foods';
 import { filterFoods } from '@/lib/food-filter';
-import { buildEatOutNavigationParams } from '@/lib/llm/eat-out-navigation';
+import {
+  buildEatOutNavigationParams,
+  saveEatOutLocalIntentState,
+} from '@/lib/llm/eat-out-navigation';
 import { filterFoodsByKeyword, normalizeSearchQuery } from '@/lib/llm/keyword-fallback';
 import type { EatOutSemanticIntent } from '@/lib/llm/types';
 import { useSemanticSearch } from '@/lib/llm/use-semantic-search';
@@ -216,10 +219,10 @@ export default function Home() {
       if (result.mode === 'fallback') {
         setEatOutAiNotice(
           locale === 'zh-CN'
-            ? 'AI 暂时不可用，已按关键词继续。'
+            ? 'AI 暂时不可用，已改用附近的宽泛搜索。'
             : locale === 'ja'
-              ? 'AI は一時的に使えないため、キーワードで続行しました。'
-              : 'AI was unavailable, so keyword search continued.',
+              ? 'AI は一時的に使えないため、近くの広めの検索で続行しました。'
+              : 'AI was unavailable, so broad nearby search continued.',
         );
       }
       if (
@@ -236,9 +239,15 @@ export default function Home() {
       if (result.mode === 'semantic') {
         setEatOutAiNotice(null);
       }
+      const localIntentId = saveEatOutLocalIntentState({
+        originalQuery: searchQuery,
+        intent: result.intent,
+      });
       return buildEatOutNavigationParams({
         query: searchQuery,
         intent: result.intent,
+        localOnly: true,
+        localIntentId,
       });
     },
     [analyzeEatOutQuery, locale, normalizedEatOutQuery, semanticEnabled],

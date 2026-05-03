@@ -110,10 +110,10 @@ export function useSemanticSearch() {
               : 'AI search fell back',
         message:
           locale === 'zh-CN'
-            ? `已切回关键词搜索：${message}`
+            ? `已切回基础搜索：${message}`
             : locale === 'ja'
-              ? `キーワード検索に戻しました: ${message}`
-              : `Switched back to keyword search: ${message}`,
+              ? `基本検索に戻しました: ${message}`
+              : `Switched back to basic search: ${message}`,
       });
     },
     [locale],
@@ -240,14 +240,14 @@ export function useSemanticSearch() {
         const intent = parseEatOutIntent(raw, normalizedQuery);
         if (!intent) {
           setRuntimeMessage(
-            'No reliable semantic restaurant filters were found. Using keyword search.',
+            'No reliable semantic restaurant filters were found. Using broad nearby search.',
           );
           return { mode: 'fallback', intent: deriveEatOutIntentFromQuery(normalizedQuery) };
         }
 
         return { mode: 'semantic', intent };
       } catch {
-        setRuntimeMessage('Semantic output was invalid JSON. Using keyword search.');
+        setRuntimeMessage('Semantic output was invalid JSON. Using broad nearby search.');
         return {
           mode: 'fallback',
           intent: deriveEatOutIntentFromQuery(normalizedQuery),
