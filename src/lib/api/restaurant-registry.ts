@@ -160,6 +160,20 @@ export function assertStoredRestaurantRecordIsCurrent(
 async function upsertRestaurantObservation(
   observation: RestaurantObservation,
 ): Promise<RestaurantRecordWithAliases> {
+  try {
+    return await upsertRestaurantObservationOnce(observation);
+  } catch (error) {
+    if (!isPrismaUniqueConstraintError(error)) {
+      throw error;
+    }
+
+    return upsertRestaurantObservationOnce(observation);
+  }
+}
+
+async function upsertRestaurantObservationOnce(
+  observation: RestaurantObservation,
+): Promise<RestaurantRecordWithAliases> {
   return prisma.$transaction(async (tx) => {
     const existingAlias = await tx.restaurantAlias.findFirst({
       where: {
@@ -187,6 +201,12 @@ async function upsertRestaurantObservation(
 
     return createRestaurantRecord(tx, observation);
   });
+}
+
+function isPrismaUniqueConstraintError(
+  error: unknown,
+): error is Prisma.PrismaClientKnownRequestError {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 }
 
 async function findCandidateRestaurant(

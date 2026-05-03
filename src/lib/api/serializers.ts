@@ -1,7 +1,6 @@
 import type { ApiVersion } from '../../generated/api/models/apiVersion.ts';
 import type { AppLocale as ContractAppLocale } from '../../generated/api/models/appLocale.ts';
 import type { CapabilitiesResponse } from '../../generated/api/models/capabilitiesResponse.ts';
-import { CapabilitiesResponseToJSON } from '../../generated/api/models/capabilitiesResponse.ts';
 import type { CapabilitiesResponseDetails } from '../../generated/api/models/capabilitiesResponseDetails.ts';
 import type { CapabilitiesResponseGeo } from '../../generated/api/models/capabilitiesResponseGeo.ts';
 import type { CapabilitiesResponseSearch } from '../../generated/api/models/capabilitiesResponseSearch.ts';
@@ -33,6 +32,12 @@ import type {
   RestaurantDetailsResult,
   RestaurantSearchResult,
 } from './types.ts';
+
+type LocalizedCategoryNameWire = {
+  'zh-CN': string;
+  ja: string;
+  en: string;
+};
 
 export function serializeCapabilitiesResponse(): unknown {
   const capabilities = getCapabilities();
@@ -74,7 +79,17 @@ export function serializeCapabilitiesResponse(): unknown {
     categories,
   };
 
-  return CapabilitiesResponseToJSON(payload);
+  return {
+    ...payload,
+    categories: payload.categories.map((category) => ({
+      ...category,
+      name: {
+        'zh-CN': category.name.zh_CN,
+        ja: category.name.ja,
+        en: category.name.en,
+      } satisfies LocalizedCategoryNameWire,
+    })),
+  };
 }
 
 export function serializeGeoResolution(resolution: GeoResolution): unknown {
