@@ -7,6 +7,7 @@ import type { Food, Locale } from '@/types/food';
 
 interface FoodPickerProps {
   candidates: Food[];
+  candidateWeights?: Record<string, number>;
   locale: Locale;
   picking: boolean;
   onResult: (food: Food) => void;
@@ -28,7 +29,14 @@ function nextUid(): string {
   return `di-${++uidCounter}`;
 }
 
-export function FoodPicker({ candidates, locale, picking, onResult, onPickEnd }: FoodPickerProps) {
+export function FoodPicker({
+  candidates,
+  candidateWeights,
+  locale,
+  picking,
+  onResult,
+  onPickEnd,
+}: FoodPickerProps) {
   const theme = useMantineTheme();
   const [displayItems, setDisplayItems] = useState<DisplayItem[]>([]);
   const [winnerIndex, setWinnerIndex] = useState(-1);
@@ -54,10 +62,10 @@ export function FoodPicker({ candidates, locale, picking, onResult, onPickEnd }:
     if (!picking || candidates.length === 0) return;
 
     // Choose winner
-    const winner = candidates[Math.floor(Math.random() * candidates.length)];
+    const winner = pickWeightedCandidate(candidates, candidateWeights);
 
     // Build cycling sequence: lots of random foods, then end with winner
-    const sequence = buildCycleSequence(candidates, winner, 40);
+    const sequence = buildCycleSequence(candidates, winner, 40, candidateWeights);
     setDisplayItems(sequence.map((food) => ({ food, uid: nextUid() })));
     setWinnerIndex(-1);
     setPhase('cycling');
@@ -104,7 +112,7 @@ export function FoodPicker({ candidates, locale, picking, onResult, onPickEnd }:
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-  }, [picking, candidates, onResult, onPickEnd]);
+  }, [picking, candidates, candidateWeights, onResult, onPickEnd]);
 
   const centerIdx = winnerIndex >= 0 ? winnerIndex : 0;
 
@@ -247,12 +255,36 @@ function shuffleArray<T>(arr: T[]): T[] {
 }
 
 /** Build a sequence that cycles through random foods and ends on the winner */
-function buildCycleSequence(candidates: Food[], winner: Food, length: number): Food[] {
+function buildCycleSequence(
+  candidates: Food[],
+  winner: Food,
+  length: number,
+  weights?: Record<string, number>,
+): Food[] {
   const pool = candidates.filter((f) => f.id !== winner.id);
   const sequence: Food[] = [];
   for (let i = 0; i < length - 1; i++) {
-    sequence.push(pool[Math.floor(Math.random() * pool.length)] ?? winner);
+    sequence.push(pool.length > 0 ? pickWeightedCandidate(pool, weights) : winner);
   }
   sequence.push(winner); // last item is always the winner
   return sequence;
+}
+
+function pickWeightedCandidate(candidates: Food[], weights?: Record<string, number>): Food {
+  if (candidates.length === 0) {
+    throw new Error('Cannot pick from an empty candidate list.');
+  }
+
+  const totalWeight = candidates.reduce(
+    (sum, food) => sum + Math.max(0.01, weights?.[food.id] ?? 1),
+    0,
+  );
+  let cursor = Math.random() * totalWeight;
+
+  for (const food of candidates) {
+    cursor -= Math.max(0.01, weights?.[food.id] ?? 1);
+    if (cursor <= 0) return food;
+  }
+
+  return candidates[0];
 }

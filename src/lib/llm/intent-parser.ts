@@ -2,16 +2,28 @@ import { categories } from '@/data/categories';
 import { foods } from '@/data/foods';
 import { normalizeSearchQuery } from '@/lib/llm/keyword-fallback';
 import {
+  COOK_AVOID_PREFERENCES,
   COOK_MEAL_TIMES,
   COOK_MOODS,
+  COOK_SOFT_PREFERENCES,
+  type CookAvoidPreference,
   type CookSemanticIntent,
+  type CookSoftPreference,
+  EAT_OUT_AVOID_PREFERENCES,
+  EAT_OUT_DIETARY_INTENTS,
   EAT_OUT_FEATURES,
+  EAT_OUT_HARD_CONSTRAINTS,
   EAT_OUT_MISSING_INFO,
+  EAT_OUT_OCCASIONS,
+  EAT_OUT_SOFT_PREFERENCES,
   EAT_OUT_SORT_OPTIONS,
+  type EatOutAvoidPreference,
   type EatOutQueryExpansion,
   type EatOutRefinementPatch,
   type EatOutRerankEntry,
   type EatOutSemanticIntent,
+  type EatOutSoftPreference,
+  PERSONAL_PREFERENCE_MODES,
   type RestaurantFactCard,
   SPATIAL_IMPORTANCE,
   SPATIAL_INTENT_TYPES,
@@ -24,9 +36,17 @@ const categoryIds = new Set(categories.map((category) => category.id));
 const foodIds = new Set(foods.map((food) => food.id));
 const moodIds = new Set<string>(COOK_MOODS);
 const mealTimeIds = new Set<string>(COOK_MEAL_TIMES);
+const cookSoftPreferenceIds = new Set<string>(COOK_SOFT_PREFERENCES);
+const cookAvoidPreferenceIds = new Set<string>(COOK_AVOID_PREFERENCES);
 const eatOutFeatureIds = new Set<string>(EAT_OUT_FEATURES);
 const eatOutSortOptions = new Set<string>(EAT_OUT_SORT_OPTIONS);
 const eatOutMissingInfoIds = new Set<string>(EAT_OUT_MISSING_INFO);
+const eatOutSoftPreferenceIds = new Set<string>(EAT_OUT_SOFT_PREFERENCES);
+const eatOutAvoidPreferenceIds = new Set<string>(EAT_OUT_AVOID_PREFERENCES);
+const eatOutOccasionIds = new Set<string>(EAT_OUT_OCCASIONS);
+const eatOutHardConstraintIds = new Set<string>(EAT_OUT_HARD_CONSTRAINTS);
+const eatOutDietaryIntentIds = new Set<string>(EAT_OUT_DIETARY_INTENTS);
+const personalPreferenceModeIds = new Set<string>(PERSONAL_PREFERENCE_MODES);
 const spatialIntentTypes = new Set<string>(SPATIAL_INTENT_TYPES);
 const spatialImportanceIds = new Set<string>(SPATIAL_IMPORTANCE);
 const mapProviderIds = new Set<string>(['google', 'hotpepper', 'amap']);
@@ -46,6 +66,36 @@ const eatOutKeywordRules = [
   { keyword: 'hotpot', pattern: /\bhot\s*pot\b|火锅|火鍋/i },
   { keyword: 'dessert', pattern: /\b(dessert|sweets?)\b|甜品|スイーツ/i },
 ];
+
+const lowAppetitePattern =
+  /食欲\s*(ない|がない|無い)|胃に優しい|胃が重い|あまり食べたくない|没胃口|沒胃口|没食欲|沒食慾|清淡|胃不舒服|不想吃太重|\b(no appetite|not hungry|upset stomach|something light|gentle food)\b/i;
+
+const avoidCuisineSkipTerms = new Set([
+  'expensive',
+  'too expensive',
+  'hungry',
+  'spicy',
+  'noisy',
+  'crowded',
+  'heavy',
+]);
+
+function matchEatOutKeywordRule(value: string): string | undefined {
+  const matchingRule = eatOutKeywordRules.find((rule) => rule.pattern.test(value));
+  return matchingRule?.keyword;
+}
+
+function sourceMentionsCategory(sourceQuery: string, categoryId: string | undefined): boolean {
+  if (!categoryId) return false;
+
+  const category = categories.find((item) => item.id === categoryId);
+  if (!category) return false;
+
+  const normalized = sourceQuery.toLocaleLowerCase();
+  return [category.id, category.name.en, category.name.ja, category.name['zh-CN']]
+    .map((value) => value.toLocaleLowerCase())
+    .some((value) => normalized.includes(value));
+}
 
 function parseIntentObject(raw: string): Record<string, unknown> | null {
   const parsed = JSON.parse(raw) as unknown;
@@ -112,10 +162,8 @@ function normalizeEatOutKeyword(value: unknown): string | undefined {
   const normalized = typeof value === 'string' ? normalizeSearchQuery(value) : '';
   if (!normalized) return undefined;
 
-  const matchingRule = eatOutKeywordRules.find((rule) => rule.pattern.test(normalized));
-  if (matchingRule) {
-    return matchingRule.keyword;
-  }
+  const matchingKeyword = matchEatOutKeywordRule(normalized);
+  if (matchingKeyword) return matchingKeyword;
 
   return normalized;
 }
@@ -128,6 +176,56 @@ function pushUnique<TValue>(items: TValue[] | undefined, item: TValue): TValue[]
   return next;
 }
 
+function pushManyUnique<TValue>(items: TValue[] | undefined, nextItems: TValue[]): TValue[] {
+  return nextItems.reduce((current, item) => pushUnique(current, item), items ?? []);
+}
+
+function applyCookSourceHints(intent: CookSemanticIntent, sourceQuery?: string) {
+  const normalized = normalizeSearchQuery(sourceQuery);
+  if (!normalized) return;
+
+  if (lowAppetitePattern.test(normalized)) {
+    intent.keyword = intent.keyword && intent.keyword !== normalized ? intent.keyword : undefined;
+    intent.mood = intent.mood === 'happy' || !intent.mood ? 'tired' : intent.mood;
+    intent.maxSpicy = 0;
+    intent.cookableOnly = true;
+    intent.occasion = 'low_appetite';
+    intent.softPreferences = pushManyUnique<CookSoftPreference>(intent.softPreferences, [
+      'light',
+      'gentle',
+      'warm',
+      'soup',
+      'low_spice',
+      'comfort',
+    ]);
+    intent.avoidPreferences = pushManyUnique<CookAvoidPreference>(intent.avoidPreferences, [
+      'spicy',
+      'fried',
+      'heavy',
+      'rich',
+      'large_portion',
+    ]);
+  }
+
+  if (/\b(quick|fast|easy|simple)\b|快手|簡単|简单|すぐ/i.test(normalized)) {
+    intent.softPreferences = pushManyUnique<CookSoftPreference>(intent.softPreferences, [
+      'quick',
+      'easy',
+    ]);
+  }
+  if (/\b(healthy|light)\b|健康|ヘルシー|清淡/i.test(normalized)) {
+    intent.softPreferences = pushManyUnique<CookSoftPreference>(intent.softPreferences, [
+      'healthy',
+      'light',
+    ]);
+  }
+  if (/\b(not spicy|no spicy|mild)\b|不要太辣|辛くない|控えめ/i.test(normalized)) {
+    intent.maxSpicy = 0;
+    intent.softPreferences = pushUnique(intent.softPreferences, 'low_spice');
+    intent.avoidPreferences = pushUnique(intent.avoidPreferences, 'spicy');
+  }
+}
+
 function applyEatOutSourceHints(
   intent: Omit<EatOutSemanticIntent, 'confidence'>,
   sourceQuery?: string,
@@ -135,20 +233,135 @@ function applyEatOutSourceHints(
   const normalized = normalizeSearchQuery(sourceQuery);
   if (!normalized) return;
 
-  const sourceKeyword = normalizeEatOutKeyword(normalized);
+  const sourceKeyword = matchEatOutKeywordRule(normalized);
   if (!intent.keyword && sourceKeyword) {
     intent.keyword = sourceKeyword;
   } else if (intent.keyword && sourceKeyword && intent.keyword === normalized) {
     intent.keyword = sourceKeyword;
   }
 
+  if (lowAppetitePattern.test(normalized)) {
+    if (!sourceKeyword || intent.keyword === normalized) {
+      intent.keyword = undefined;
+    }
+    if (!sourceMentionsCategory(normalized, intent.category)) {
+      intent.category = undefined;
+    }
+    intent.occasion = 'low_appetite';
+    intent.softPreferences = pushManyUnique<EatOutSoftPreference>(intent.softPreferences, [
+      'light',
+      'gentle',
+      'warm',
+      'soup',
+      'small_portion',
+      'quiet',
+      'solo_friendly',
+    ]);
+    intent.avoidPreferences = pushManyUnique<EatOutAvoidPreference>(intent.avoidPreferences, [
+      'spicy',
+      'fried',
+      'heavy',
+      'rich',
+      'large_portion',
+      'alcohol_focused',
+      'bbq',
+      'hotpot',
+      'fastfood',
+    ]);
+    if (intent.queryExpansion?.primaryKeyword === normalized) {
+      intent.queryExpansion.primaryKeyword = undefined;
+    }
+    if (!sourceKeyword && intent.queryExpansion?.providerQueries) {
+      intent.queryExpansion.providerQueries = undefined;
+    }
+  }
+
   if (/\b(quiet|calm|not noisy|low noise)\b|静か|落ち着|安静/i.test(normalized)) {
     intent.softPreferences = pushUnique(intent.softPreferences, 'quiet');
+    intent.avoidPreferences = pushUnique(intent.avoidPreferences, 'noisy');
   }
 
   if (/\b(wifi|wi-fi|work|laptop|study)\b|仕事|作業|办公|工作/i.test(normalized)) {
     intent.features = pushUnique(intent.features, 'wifi');
     intent.softPreferences = pushUnique(intent.softPreferences, 'wifi');
+  }
+
+  if (/\b(cheap|budget|inexpensive|not expensive)\b|安い|便宜|不贵|不貴/i.test(normalized)) {
+    intent.maxBudgetLevel = intent.maxBudgetLevel ?? 2;
+    intent.softPreferences = pushUnique(intent.softPreferences, 'budget_friendly');
+    intent.avoidPreferences = pushUnique(intent.avoidPreferences, 'expensive');
+  }
+  if (
+    /\b(expensive|fancy|premium)\b|高級|高级/i.test(normalized) &&
+    !/\b(not expensive|not too expensive|inexpensive)\b|不贵|不貴/i.test(normalized)
+  ) {
+    intent.avoidPreferences = intent.avoidPreferences?.filter((item) => item !== 'expensive');
+  }
+  if (/\b(solo|alone|one person)\b|一人|ひとり|一个人|單人|单人/i.test(normalized)) {
+    intent.partySize = intent.partySize ?? 1;
+    intent.occasion = intent.occasion ?? 'solo';
+    intent.softPreferences = pushUnique(intent.softPreferences, 'solo_friendly');
+  }
+  if (/\b(quick|fast|grab)\b|さっと|すぐ|快餐|快手/i.test(normalized)) {
+    intent.occasion = intent.occasion ?? 'quick_meal';
+    intent.softPreferences = pushUnique(intent.softPreferences, 'quick');
+  }
+  if (/\b(healthy|light)\b|健康|ヘルシー|清淡/i.test(normalized)) {
+    intent.softPreferences = pushManyUnique<EatOutSoftPreference>(intent.softPreferences, [
+      'healthy',
+      'light',
+    ]);
+    intent.avoidPreferences = pushManyUnique<EatOutAvoidPreference>(intent.avoidPreferences, [
+      'heavy',
+      'rich',
+    ]);
+  }
+  if (/\b(spicy|hot food)\b|辛い|辣/i.test(normalized)) {
+    if (/\b(not|no|less|mild)\b|不要|不太|控えめ|辛くない/i.test(normalized)) {
+      intent.avoidPreferences = pushUnique(intent.avoidPreferences, 'spicy');
+    }
+  }
+  if (
+    /\b(surprise me|something new|different|novel)\b|いつもと違う|新しい|换个|換個/i.test(
+      normalized,
+    )
+  ) {
+    intent.personalPreferenceMode = 'explore';
+    intent.softPreferences = pushUnique(intent.softPreferences, 'novel');
+    intent.avoidPreferences = pushUnique(intent.avoidPreferences, 'recently_visited');
+  }
+  if (
+    /\b(ignore my usual|ignore usual|not my usual)\b|いつもの好みを無視|平时的喜好不用/i.test(
+      normalized,
+    )
+  ) {
+    intent.personalPreferenceMode = 'ignore';
+  }
+  if (/\b(my usual|usual favorite|favorite)\b|いつもの|常去|平时喜欢/i.test(normalized)) {
+    intent.personalPreferenceMode = intent.personalPreferenceMode ?? 'prefer';
+    intent.softPreferences = pushUnique(intent.softPreferences, 'familiar');
+  }
+
+  const avoidMatches = [
+    ...normalized.matchAll(/\bnot\s+([a-z][a-z -]{1,24})\b/gi),
+    ...normalized.matchAll(/(?:不要|不想吃|避开|避開)([^，。,.]{1,16})/gi),
+    ...normalized.matchAll(/(?:じゃない|以外|避けたい|抜きで|なし)([^，。,.]{1,16})/gi),
+  ];
+  for (const avoidMatch of avoidMatches) {
+    const rawAvoid = normalizeSearchQuery(avoidMatch[1]);
+    if (!rawAvoid || avoidCuisineSkipTerms.has(rawAvoid)) continue;
+    const avoidKeyword = matchEatOutKeywordRule(rawAvoid) ?? rawAvoid;
+    intent.avoidCuisines = pushUnique(intent.avoidCuisines, avoidKeyword);
+    if (avoidKeyword === 'ramen')
+      intent.avoidPreferences = pushUnique(intent.avoidPreferences, 'heavy');
+    if (avoidKeyword === 'bbq')
+      intent.avoidPreferences = pushUnique(intent.avoidPreferences, 'bbq');
+    if (avoidKeyword === 'hotpot') {
+      intent.avoidPreferences = pushUnique(intent.avoidPreferences, 'hotpot');
+    }
+    if (avoidKeyword === 'izakaya') {
+      intent.avoidPreferences = pushUnique(intent.avoidPreferences, 'alcohol_focused');
+    }
   }
 }
 
@@ -164,6 +377,13 @@ export function deriveEatOutIntentFromQuery(sourceQuery: string): EatOutSemantic
     ...intent,
     confidence: 0.45,
   };
+}
+
+export function deriveCookIntentFromQuery(sourceQuery: string): CookSemanticIntent | null {
+  const intent: CookSemanticIntent = {};
+  applyCookSourceHints(intent, sourceQuery);
+
+  return Object.keys(intent).length > 0 ? intent : null;
 }
 
 export function deriveEatOutRefinementPatchFromQuery(
@@ -202,7 +422,7 @@ export function deriveEatOutRefinementPatchFromQuery(
     patch.maxBudgetLevel = 2;
   }
 
-  const addSoftPreferences: string[] = [];
+  const addSoftPreferences: EatOutSoftPreference[] = [];
   if (/\b(quiet|quieter|calm|not noisy|low noise)\b|静か|落ち着|安静/i.test(normalized)) {
     addSoftPreferences.push('quiet');
   }
@@ -311,8 +531,9 @@ export function parseEatOutQueryExpansion(value: unknown): EatOutQueryExpansion 
   }
 
   const softPreferences = parseStringArray(parsed.softPreferences, {
+    allowed: eatOutSoftPreferenceIds,
     maxItems: MAX_SOFT_PREFERENCES,
-  });
+  }) as EatOutSoftPreference[];
   if (softPreferences.length > 0) {
     expansion.softPreferences = softPreferences;
   }
@@ -345,12 +566,18 @@ function hasActionableEatOutIntent(intent: Omit<EatOutSemanticIntent, 'confidenc
       intent.features?.length ||
       intent.sortBy ||
       intent.spatialIntent ||
-      intent.queryExpansion ||
-      intent.softPreferences?.length,
+      (intent.queryExpansion && Object.keys(intent.queryExpansion).length > 0) ||
+      intent.hardConstraints?.length ||
+      intent.softPreferences?.length ||
+      intent.avoidPreferences?.length ||
+      intent.avoidCuisines?.length ||
+      intent.personalPreferenceMode ||
+      intent.occasion ||
+      intent.dietaryIntent?.length,
   );
 }
 
-export function parseCookIntent(raw: string): CookSemanticIntent | null {
+export function parseCookIntent(raw: string, sourceQuery?: string): CookSemanticIntent | null {
   const parsed = parseIntentObject(raw);
   if (!parsed) return null;
 
@@ -395,6 +622,31 @@ export function parseCookIntent(raw: string): CookSemanticIntent | null {
       intent.recommendedIds = ids;
     }
   }
+
+  const softPreferences = parseStringArray(parsed.softPreferences, {
+    allowed: cookSoftPreferenceIds,
+    maxItems: 6,
+  }) as CookSoftPreference[];
+  if (softPreferences.length > 0) {
+    intent.softPreferences = softPreferences;
+  }
+
+  const avoidPreferences = parseStringArray(parsed.avoidPreferences, {
+    allowed: cookAvoidPreferenceIds,
+    maxItems: 6,
+  }) as CookAvoidPreference[];
+  if (avoidPreferences.length > 0) {
+    intent.avoidPreferences = avoidPreferences;
+  }
+
+  if (
+    typeof parsed.occasion === 'string' &&
+    ['comfort', 'low_appetite', 'quick_meal'].includes(parsed.occasion)
+  ) {
+    intent.occasion = parsed.occasion as CookSemanticIntent['occasion'];
+  }
+
+  applyCookSourceHints(intent, sourceQuery);
 
   return Object.keys(intent).length > 0 ? intent : null;
 }
@@ -480,10 +732,55 @@ export function parseEatOutIntent(raw: string, sourceQuery?: string): EatOutSema
   }
 
   const softPreferences = parseStringArray(parsed.softPreferences, {
+    allowed: eatOutSoftPreferenceIds,
     maxItems: MAX_SOFT_PREFERENCES,
-  });
+  }) as EatOutSoftPreference[];
   if (softPreferences.length > 0) {
     intent.softPreferences = softPreferences;
+  }
+
+  const avoidPreferences = parseStringArray(parsed.avoidPreferences, {
+    allowed: eatOutAvoidPreferenceIds,
+    maxItems: MAX_SOFT_PREFERENCES,
+  }) as EatOutAvoidPreference[];
+  if (avoidPreferences.length > 0) {
+    intent.avoidPreferences = avoidPreferences;
+  }
+
+  const hardConstraints = parseStringArray(parsed.hardConstraints, {
+    allowed: eatOutHardConstraintIds,
+    maxItems: 6,
+  }) as NonNullable<EatOutSemanticIntent['hardConstraints']>;
+  if (hardConstraints.length > 0) {
+    intent.hardConstraints = hardConstraints;
+  }
+
+  const avoidCuisines = parseStringArray(parsed.avoidCuisines, { maxItems: 6 });
+  if (avoidCuisines.length > 0) {
+    intent.avoidCuisines = avoidCuisines.map((item) => matchEatOutKeywordRule(item) ?? item);
+  }
+
+  if (typeof parsed.personalPreferenceMode === 'string') {
+    const normalizedMode = normalizeSearchQuery(parsed.personalPreferenceMode);
+    if (personalPreferenceModeIds.has(normalizedMode)) {
+      intent.personalPreferenceMode =
+        normalizedMode as EatOutSemanticIntent['personalPreferenceMode'];
+    }
+  }
+
+  if (typeof parsed.occasion === 'string') {
+    const normalizedOccasion = normalizeSearchQuery(parsed.occasion);
+    if (eatOutOccasionIds.has(normalizedOccasion)) {
+      intent.occasion = normalizedOccasion as EatOutSemanticIntent['occasion'];
+    }
+  }
+
+  const dietaryIntent = parseStringArray(parsed.dietaryIntent, {
+    allowed: eatOutDietaryIntentIds,
+    maxItems: 4,
+  }) as NonNullable<EatOutSemanticIntent['dietaryIntent']>;
+  if (dietaryIntent.length > 0) {
+    intent.dietaryIntent = dietaryIntent;
   }
 
   applyEatOutSourceHints(intent, sourceQuery);
@@ -510,8 +807,9 @@ export function parseEatOutRefinementPatch(raw: string): EatOutRefinementPatch |
   const patch: EatOutRefinementPatch = { operation: 'refine' };
 
   const addSoftPreferences = parseStringArray(parsed.addSoftPreferences, {
+    allowed: eatOutSoftPreferenceIds,
     maxItems: MAX_SOFT_PREFERENCES,
-  });
+  }) as NonNullable<EatOutRefinementPatch['addSoftPreferences']>;
   if (addSoftPreferences.length > 0) {
     patch.addSoftPreferences = addSoftPreferences;
   }

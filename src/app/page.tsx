@@ -28,7 +28,7 @@ import { FoodPicker } from '@/components/picker/FoodPicker';
 import { SmartSearchInput } from '@/components/search/SmartSearchInput';
 import { categories } from '@/data/categories';
 import { foods } from '@/data/foods';
-import { filterFoods } from '@/lib/food-filter';
+import { buildFoodCandidateWeights, filterFoods, rankFoodsForIntent } from '@/lib/food-filter';
 import {
   buildEatOutNavigationParams,
   saveEatOutLocalIntentState,
@@ -158,7 +158,12 @@ export default function Home() {
     });
     const baseCandidates = filtered.length > 0 ? filtered : foods.filter((f) => f.cookable);
 
-    return filterFoodsByKeyword(baseCandidates, effectiveCookKeyword);
+    const keywordMatchedCandidates = filterFoodsByKeyword(baseCandidates, effectiveCookKeyword);
+    if (!cookSemanticIntent) return keywordMatchedCandidates;
+
+    return rankFoodsForIntent(keywordMatchedCandidates, cookSemanticIntent).map(
+      (item) => item.food,
+    );
   }, [
     cookSemanticIntent,
     effectiveCookKeyword,
@@ -168,6 +173,10 @@ export default function Home() {
     excludedFoodIds,
     season,
   ]);
+  const candidateWeights = useMemo(() => {
+    if (!cookSemanticIntent) return undefined;
+    return buildFoodCandidateWeights(rankFoodsForIntent(candidates, cookSemanticIntent));
+  }, [candidates, cookSemanticIntent]);
 
   const handlePick = useCallback(() => {
     if (isSpinning) return;
@@ -595,6 +604,7 @@ export default function Home() {
                       >
                         <FoodPicker
                           candidates={candidates}
+                          candidateWeights={candidateWeights}
                           locale={locale}
                           picking={isSpinning}
                           onResult={handleResult}

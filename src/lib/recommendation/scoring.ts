@@ -1,7 +1,13 @@
+import type {
+  EatOutSemanticIntent,
+  PersonalPreferenceMode,
+  SearchSessionGoal,
+} from '@/lib/llm/types';
 import type { FeedbackEvent } from '@/stores/restaurant-feedback';
 import type { VisitRecord } from '@/stores/visited';
 import type { Restaurant } from '@/types/restaurant';
 import { getRestaurantIdentityKey } from './identity';
+import { buildRestaurantPreferenceEvidence } from './preference-evidence';
 import {
   deriveRecommendationProfile,
   getLatestFeedbackByRestaurant,
@@ -89,6 +95,9 @@ export function rankRestaurants(params: {
   feedbackEvents: FeedbackEvent[];
   preferredSort: 'distance' | 'rating';
   keyword?: string | null;
+  currentIntent?: EatOutSemanticIntent | null;
+  sessionGoal?: SearchSessionGoal | null;
+  personalPreferenceMode?: PersonalPreferenceMode;
 }): RankedRestaurantResult[] {
   const profile = deriveRecommendationProfile(params.visitRecords, params.feedbackEvents);
   const visitMap = new Map(
@@ -99,6 +108,13 @@ export function rankRestaurants(params: {
   const latestFeedbackMap = getLatestFeedbackByRestaurant(params.feedbackEvents);
   const suppressedRestaurantKeys = getSuppressedRestaurantKeys(params.feedbackEvents);
   const keywordTerms = normalizeKeyword(params.keyword);
+  const personalPreferenceMode =
+    params.personalPreferenceMode ?? params.currentIntent?.personalPreferenceMode ?? 'auto';
+  const shouldUseProfile = personalPreferenceMode !== 'ignore';
+  const profileCuisineBoost =
+    personalPreferenceMode === 'explore' ? 0.25 : personalPreferenceMode === 'prefer' ? 1.8 : 1.5;
+  const profileFeatureBoost =
+    personalPreferenceMode === 'explore' ? 0.2 : personalPreferenceMode === 'prefer' ? 1.25 : 1.1;
 
   return params.restaurants
     .map((restaurant) => {
@@ -127,14 +143,24 @@ export function rankRestaurants(params: {
         reasons.add('query_match');
       }
 
-      if (profile) {
+      const preferenceEvidence = buildRestaurantPreferenceEvidence({
+        restaurant,
+        currentIntent: params.currentIntent,
+        sessionGoal: params.sessionGoal,
+        visitRecord,
+        latestFeedback,
+        profile,
+      });
+      score += preferenceEvidence.score;
+
+      if (profile && shouldUseProfile) {
         if (restaurant.cuisineType) {
           if (profile.topCuisines.includes(restaurant.cuisineType)) {
-            score += 1.5;
+            score += profileCuisineBoost;
             reasons.add('preferred_cuisine');
           }
           if (profile.avoidedCuisines.includes(restaurant.cuisineType)) {
-            score -= 1.8;
+            score -= personalPreferenceMode === 'explore' ? 0.7 : 1.8;
           }
         }
 
@@ -142,7 +168,7 @@ export function rankRestaurants(params: {
           profile.topFeatures.includes(feature),
         );
         if (featureMatches.length > 0) {
-          score += Math.min(1.1, featureMatches.length * 0.4);
+          score += Math.min(profileFeatureBoost, featureMatches.length * 0.4);
           reasons.add('preferred_feature');
         }
 
@@ -181,7 +207,10 @@ export function rankRestaurants(params: {
           }
         }
 
-        if (!visitRecord && profile.noveltyPreference === 'high') {
+        if (personalPreferenceMode === 'explore' && !visitRecord) {
+          score += 1.15;
+          reasons.add('novel_pick');
+        } else if (!visitRecord && profile.noveltyPreference === 'high') {
           score += 0.55;
           reasons.add('novel_pick');
         } else if (!visitRecord && profile.noveltyPreference === 'medium') {

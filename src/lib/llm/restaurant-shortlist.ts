@@ -1,6 +1,8 @@
 import type { RestaurantFactCard } from '@/lib/llm/types';
 import { getRestaurantIdentityKey } from '@/lib/recommendation/identity';
+import { buildRestaurantPreferenceEvidence } from '@/lib/recommendation/preference-evidence';
 import {
+  deriveRecommendationProfile,
   getLatestFeedbackByRestaurant,
   getSuppressedRestaurantKeys,
 } from '@/lib/recommendation/profile';
@@ -8,6 +10,7 @@ import type { RecommendationReasonCode } from '@/lib/recommendation/types';
 import type { FeedbackEvent } from '@/stores/restaurant-feedback';
 import type { VisitRecord } from '@/stores/visited';
 import type { Restaurant } from '@/types/restaurant';
+import type { EatOutSemanticIntent, SearchSessionGoal } from './types';
 
 const DAY_MS = 86_400_000;
 
@@ -66,11 +69,34 @@ function getMissingFacts(restaurant: Restaurant): string[] {
 export function buildRestaurantFactCards(params: {
   restaurants: Restaurant[];
   deterministicReasonsById?: Map<string, RecommendationReasonCode[]>;
+  currentIntent?: EatOutSemanticIntent | null;
+  sessionGoal?: SearchSessionGoal | null;
+  visitRecords?: VisitRecord[];
+  feedbackEvents?: FeedbackEvent[];
 }): RestaurantFactCard[] {
+  const visitMap = new Map(
+    (params.visitRecords ?? []).map(
+      (record) => [record.restaurantKey, record] satisfies [string, VisitRecord],
+    ),
+  );
+  const latestFeedbackMap = getLatestFeedbackByRestaurant(params.feedbackEvents ?? []);
+  const profile = deriveRecommendationProfile(
+    params.visitRecords ?? [],
+    params.feedbackEvents ?? [],
+  );
+
   return params.restaurants
     .map<RestaurantFactCard | null>((restaurant) => {
       const id = getRestaurantIdentityKey(restaurant);
       if (!id) return null;
+      const preferenceEvidence = buildRestaurantPreferenceEvidence({
+        restaurant,
+        currentIntent: params.currentIntent,
+        sessionGoal: params.sessionGoal,
+        visitRecord: visitMap.get(id),
+        latestFeedback: latestFeedbackMap.get(id),
+        profile,
+      });
 
       return {
         id,
@@ -89,6 +115,10 @@ export function buildRestaurantFactCards(params: {
         providerConfidence: getProviderConfidence(restaurant),
         missingFacts: getMissingFacts(restaurant),
         deterministicReasons: params.deterministicReasonsById?.get(id) ?? [],
+        preferenceEvidence: preferenceEvidence.preferenceEvidence,
+        riskEvidence: preferenceEvidence.riskEvidence,
+        profileEvidence: preferenceEvidence.profileEvidence,
+        sessionEvidence: preferenceEvidence.sessionEvidence,
       } satisfies RestaurantFactCard;
     })
     .filter((card): card is RestaurantFactCard => card != null);
@@ -110,6 +140,10 @@ export function formatRestaurantFactCardsForRerank(factCards: RestaurantFactCard
       providerConfidence: card.providerConfidence,
       missingFacts: card.missingFacts,
       deterministicReasons: card.deterministicReasons,
+      preferenceEvidence: card.preferenceEvidence,
+      riskEvidence: card.riskEvidence,
+      profileEvidence: card.profileEvidence,
+      sessionEvidence: card.sessionEvidence,
     })),
   );
 }

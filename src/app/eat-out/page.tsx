@@ -53,10 +53,12 @@ import {
   deriveRestaurantTasteProfile,
 } from '@/lib/llm/restaurant-taste-profile';
 import type {
+  EatOutAvoidPreference,
   EatOutQueryExpansion,
   EatOutRefinementPatch,
   EatOutRerankEntry,
   EatOutSemanticIntent,
+  EatOutSoftPreference,
   SearchSessionGoal,
 } from '@/lib/llm/types';
 import { useSemanticSearch } from '@/lib/llm/use-semantic-search';
@@ -161,6 +163,10 @@ function getIntentSoftPreferences(intent: EatOutSemanticIntent | null | undefine
   );
 }
 
+function getIntentAvoidPreferences(intent: EatOutSemanticIntent | null | undefined): string[] {
+  return intent?.avoidPreferences ?? [];
+}
+
 function normalizeProviderQueryExpansion(
   expansion: EatOutQueryExpansion['providerQueries'] | undefined,
 ): EatOutQueryExpansion['providerQueries'] | undefined {
@@ -249,6 +255,10 @@ function EatOutContent() {
     : null;
   const localIntentSoftPreferences = useMemo(
     () => getIntentSoftPreferences(localIntent),
+    [localIntent],
+  );
+  const localIntentAvoidPreferences = useMemo(
+    () => getIntentAvoidPreferences(localIntent),
     [localIntent],
   );
   const localIntentSignature = useMemo(
@@ -541,6 +551,37 @@ function EatOutContent() {
     tempRequiredFeatures,
   ]);
 
+  const currentRecommendationIntent = useMemo<EatOutSemanticIntent | null>(() => {
+    const baseIntent = appliedRefineIntent ?? localIntent;
+    const mergedSoftPreferences = mergeStringLists(
+      getIntentSoftPreferences(localIntent),
+      getIntentSoftPreferences(appliedRefineIntent),
+      softPreferences,
+    ) as EatOutSoftPreference[];
+    const mergedAvoidPreferences = mergeStringLists(
+      localIntentAvoidPreferences,
+      getIntentAvoidPreferences(appliedRefineIntent),
+    ) as EatOutAvoidPreference[];
+
+    if (!baseIntent && mergedSoftPreferences.length === 0 && mergedAvoidPreferences.length === 0) {
+      return null;
+    }
+
+    return {
+      ...(baseIntent ?? { confidence: 0.5 }),
+      confidence: baseIntent?.confidence ?? 0.5,
+      softPreferences: mergedSoftPreferences.length > 0 ? mergedSoftPreferences : undefined,
+      avoidPreferences: mergedAvoidPreferences.length > 0 ? mergedAvoidPreferences : undefined,
+      occasion: appliedRefineIntent?.occasion ?? localIntent?.occasion,
+      personalPreferenceMode:
+        appliedRefineIntent?.personalPreferenceMode ?? localIntent?.personalPreferenceMode,
+      avoidCuisines: mergeStringLists(
+        localIntent?.avoidCuisines ?? [],
+        appliedRefineIntent?.avoidCuisines ?? [],
+      ),
+    };
+  }, [appliedRefineIntent, localIntent, localIntentAvoidPreferences, softPreferences]);
+
   const rankedRestaurants = useMemo(
     () =>
       rankRestaurants({
@@ -549,8 +590,18 @@ function EatOutContent() {
         feedbackEvents,
         preferredSort: effectiveSortBy,
         keyword: effectiveKeyword,
+        currentIntent: currentRecommendationIntent,
+        sessionGoal: searchSessionGoal,
       }),
-    [effectiveKeyword, effectiveSortBy, feedbackEvents, filteredRestaurants, visitedRecords],
+    [
+      currentRecommendationIntent,
+      effectiveKeyword,
+      effectiveSortBy,
+      feedbackEvents,
+      filteredRestaurants,
+      searchSessionGoal,
+      visitedRecords,
+    ],
   );
 
   const restaurants = useMemo(
@@ -1147,6 +1198,9 @@ function EatOutContent() {
   const aiRerankGoalSummary = useMemo(() => {
     const parts: string[] = [];
 
+    if (localOriginalQuery) {
+      parts.push(`original query: ${localOriginalQuery}`);
+    }
     if (effectiveKeyword) {
       parts.push(`keyword: ${effectiveKeyword}`);
     }
@@ -1172,6 +1226,15 @@ function EatOutContent() {
     if (softPreferences.length > 0) {
       parts.push(`soft preferences: ${softPreferences.join(', ')}`);
     }
+    if (currentRecommendationIntent?.occasion) {
+      parts.push(`occasion: ${currentRecommendationIntent.occasion}`);
+    }
+    if (currentRecommendationIntent?.avoidPreferences?.length) {
+      parts.push(`avoid preferences: ${currentRecommendationIntent.avoidPreferences.join(', ')}`);
+    }
+    if (currentRecommendationIntent?.avoidCuisines?.length) {
+      parts.push(`avoid cuisines: ${currentRecommendationIntent.avoidCuisines.join(', ')}`);
+    }
 
     parts.push('prefer strong taste-profile matches when otherwise similar');
     parts.push('avoid recently negative or dismissed places');
@@ -1185,6 +1248,8 @@ function EatOutContent() {
     effectiveOpenOnly,
     effectivePartySize,
     effectiveSearchRadiusKm,
+    localOriginalQuery,
+    currentRecommendationIntent,
     softPreferences,
     tempRequiredFeatures,
   ]);
@@ -1195,8 +1260,19 @@ function EatOutContent() {
       buildRestaurantFactCards({
         restaurants: aiRerankCandidates,
         deterministicReasonsById,
+        currentIntent: currentRecommendationIntent,
+        sessionGoal: searchSessionGoal,
+        visitRecords: visitedRecords,
+        feedbackEvents,
       }),
-    [aiRerankCandidates, deterministicReasonsById],
+    [
+      aiRerankCandidates,
+      currentRecommendationIntent,
+      deterministicReasonsById,
+      feedbackEvents,
+      searchSessionGoal,
+      visitedRecords,
+    ],
   );
 
   const handleAiRerank = useCallback(async () => {

@@ -11,6 +11,7 @@ import {
   refreshLlmModelCacheStatus,
 } from '@/lib/llm/engine';
 import {
+  deriveCookIntentFromQuery,
   deriveEatOutIntentFromQuery,
   deriveEatOutRefinementPatchFromQuery,
   parseCookIntent,
@@ -183,6 +184,11 @@ export function useSemanticSearch() {
         return { mode: 'fallback', intent: null };
       }
 
+      const deterministicIntent = deriveCookIntentFromQuery(normalizedQuery);
+      if (deterministicIntent?.occasion === 'low_appetite') {
+        return { mode: 'semantic', intent: deterministicIntent };
+      }
+
       const prompt = buildCookPrompt(normalizedQuery);
       const raw = await runStructuredQuery(
         'cook-intent',
@@ -199,7 +205,7 @@ export function useSemanticSearch() {
       }
 
       try {
-        const intent = parseCookIntent(raw);
+        const intent = parseCookIntent(raw, normalizedQuery);
         if (!intent) {
           setRuntimeMessage('No reliable semantic filters were found. Using keyword search.');
           return { mode: 'fallback', intent: null };
@@ -219,6 +225,16 @@ export function useSemanticSearch() {
       const normalizedQuery = normalizeSearchQuery(query);
       if (!normalizedQuery || !semanticEnabled) {
         return { mode: 'fallback', intent: null };
+      }
+
+      const deterministicIntent = deriveEatOutIntentFromQuery(normalizedQuery);
+      if (
+        deterministicIntent &&
+        (deterministicIntent.occasion === 'low_appetite' ||
+          deterministicIntent.personalPreferenceMode != null ||
+          (deterministicIntent.avoidCuisines?.length ?? 0) > 0)
+      ) {
+        return { mode: 'semantic', intent: deterministicIntent };
       }
 
       const prompt = buildEatOutPrompt(normalizedQuery);

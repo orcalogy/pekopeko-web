@@ -43,6 +43,89 @@ export const EAT_OUT_MISSING_INFO = [
   'openingHours',
   'dietary',
 ] as const;
+export const EAT_OUT_SOFT_PREFERENCES = [
+  'light',
+  'gentle',
+  'warm',
+  'soup',
+  'small_portion',
+  'quick',
+  'healthy',
+  'quiet',
+  'wifi',
+  'solo_friendly',
+  'non_smoking',
+  'budget_friendly',
+  'high_rating',
+  'nearby',
+  'familiar',
+  'novel',
+] as const;
+export const EAT_OUT_AVOID_PREFERENCES = [
+  'spicy',
+  'fried',
+  'heavy',
+  'rich',
+  'large_portion',
+  'alcohol_focused',
+  'bbq',
+  'hotpot',
+  'fastfood',
+  'noisy',
+  'crowded',
+  'expensive',
+  'recently_visited',
+  'previously_rejected',
+] as const;
+export const EAT_OUT_OCCASIONS = [
+  'solo',
+  'date',
+  'friends',
+  'family',
+  'work',
+  'quick_meal',
+  'comfort',
+  'low_appetite',
+] as const;
+export const EAT_OUT_HARD_CONSTRAINTS = [
+  'open_now',
+  'budget',
+  'party_size',
+  'required_feature',
+  'avoid_cuisine',
+  'dietary',
+] as const;
+export const PERSONAL_PREFERENCE_MODES = ['auto', 'prefer', 'ignore', 'explore'] as const;
+export const EAT_OUT_DIETARY_INTENTS = [
+  'vegetarian',
+  'vegan',
+  'halal',
+  'gluten_free',
+  'seafood_free',
+  'meat_free',
+] as const;
+export const COOK_SOFT_PREFERENCES = [
+  'light',
+  'gentle',
+  'warm',
+  'soup',
+  'quick',
+  'easy',
+  'healthy',
+  'low_spice',
+  'comfort',
+  'simple_ingredients',
+] as const;
+export const COOK_AVOID_PREFERENCES = [
+  'spicy',
+  'fried',
+  'heavy',
+  'rich',
+  'large_portion',
+  'bbq',
+  'hotpot',
+  'fastfood',
+] as const;
 export const SPATIAL_INTENT_TYPES = [
   'near_current_location',
   'near_landmark',
@@ -55,6 +138,14 @@ export const SPATIAL_IMPORTANCE = ['hard', 'soft'] as const;
 export type EatOutFeature = (typeof EAT_OUT_FEATURES)[number];
 export type EatOutSortOption = (typeof EAT_OUT_SORT_OPTIONS)[number];
 export type EatOutMissingInfo = (typeof EAT_OUT_MISSING_INFO)[number];
+export type EatOutSoftPreference = (typeof EAT_OUT_SOFT_PREFERENCES)[number];
+export type EatOutAvoidPreference = (typeof EAT_OUT_AVOID_PREFERENCES)[number];
+export type EatOutOccasion = (typeof EAT_OUT_OCCASIONS)[number];
+export type EatOutHardConstraint = (typeof EAT_OUT_HARD_CONSTRAINTS)[number];
+export type PersonalPreferenceMode = (typeof PERSONAL_PREFERENCE_MODES)[number];
+export type EatOutDietaryIntent = (typeof EAT_OUT_DIETARY_INTENTS)[number];
+export type CookSoftPreference = (typeof COOK_SOFT_PREFERENCES)[number];
+export type CookAvoidPreference = (typeof COOK_AVOID_PREFERENCES)[number];
 export type SpatialIntentType = (typeof SPATIAL_INTENT_TYPES)[number];
 export type SpatialIntentImportance = (typeof SPATIAL_IMPORTANCE)[number];
 
@@ -75,12 +166,12 @@ export interface EatOutQueryExpansion {
   primaryKeyword?: string;
   providerQueries?: Partial<Record<MapProviderType, string[]>>;
   hardFilters?: Array<'openNow'>;
-  softPreferences?: string[];
+  softPreferences?: EatOutSoftPreference[];
 }
 
 export interface EatOutRefinementPatch {
   operation: 'refine';
-  addSoftPreferences?: string[];
+  addSoftPreferences?: EatOutSoftPreference[];
   removeCuisines?: string[];
   maxBudgetLevel?: 1 | 2 | 3 | 4;
   partySize?: number;
@@ -103,6 +194,10 @@ export interface RestaurantFactCard {
   providerConfidence: 'high' | 'medium' | 'low';
   missingFacts: string[];
   deterministicReasons: string[];
+  preferenceEvidence?: string[];
+  riskEvidence?: string[];
+  profileEvidence?: string[];
+  sessionEvidence?: string[];
 }
 
 export interface SearchSessionGoal {
@@ -139,6 +234,9 @@ export interface CookSemanticIntent {
   mealTime?: MealTime;
   cookableOnly?: boolean;
   recommendedIds?: string[];
+  softPreferences?: CookSoftPreference[];
+  avoidPreferences?: CookAvoidPreference[];
+  occasion?: 'comfort' | 'low_appetite' | 'quick_meal';
 }
 
 export interface EatOutSemanticIntent {
@@ -155,7 +253,13 @@ export interface EatOutSemanticIntent {
   clarifyingQuestion?: EatOutClarifyingQuestion;
   spatialIntent?: SpatialIntent;
   queryExpansion?: EatOutQueryExpansion;
-  softPreferences?: string[];
+  hardConstraints?: EatOutHardConstraint[];
+  softPreferences?: EatOutSoftPreference[];
+  avoidPreferences?: EatOutAvoidPreference[];
+  avoidCuisines?: string[];
+  personalPreferenceMode?: PersonalPreferenceMode;
+  occasion?: EatOutOccasion;
+  dietaryIntent?: EatOutDietaryIntent[];
 }
 
 export interface EatOutRerankEntry {
