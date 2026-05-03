@@ -35,6 +35,32 @@ test('rejects invalid LLM rerank ids', () => {
   assert.equal(rerank, null);
 });
 
+test('accepts common rerank JSON variants while keeping ids valid', () => {
+  const rerank = parseEatOutRerank(
+    JSON.stringify({
+      ranking: [
+        {
+          name: 'Desk Cafe',
+          score: 0.9,
+          matched: ['wifi'],
+          tradeoffs: ['quiet unknown'],
+          reason: 'Matches wifi.',
+          confidence: 0.7,
+        },
+      ],
+    }),
+    mockFactCards,
+  );
+
+  assert.equal(rerank?.[0]?.id, 'rid-cafe-1');
+});
+
+test('accepts top-level rerank id arrays', () => {
+  const rerank = parseEatOutRerank(JSON.stringify(['rid-cafe-1']), ['rid-cafe-1']);
+
+  assert.equal(rerank?.[0]?.id, 'rid-cafe-1');
+});
+
 test('keeps grounded WiFi reason', () => {
   const rerank = parseEatOutRerank(
     JSON.stringify({

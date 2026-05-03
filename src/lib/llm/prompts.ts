@@ -187,6 +187,27 @@ export const EAT_OUT_REFINEMENT_PATCH_SCHEMA = JSON.stringify({
   required: ['operation'],
 });
 
+const COOK_PROMPT_EXAMPLES = [
+  'warm spicy noodles for dinner -> {"keyword":"noodles","category":"noodles","mealTime":"dinner","maxSpicy":2,"cookableOnly":true}',
+  '不要太辣的面 -> {"category":"noodles","maxSpicy":1,"cookableOnly":true}',
+  '今日はちょっと冒険したい -> {"mood":"adventurous","cookableOnly":true}',
+].join('\n');
+
+const EAT_OUT_PROMPT_EXAMPLES = [
+  'quiet cafe where I can work -> {"keyword":"cafe","category":"cafe","features":["wifi"],"softPreferences":["quiet"],"confidence":0.7}',
+  '新宿駅の近くで安くて一人で入りやすい店 -> {"maxBudgetLevel":2,"partySize":1,"spatialIntent":{"type":"near_station","anchorText":"新宿駅","importance":"soft"},"confidence":0.65}',
+  '现在还开着的夜宵 -> {"openNow":true,"confidence":0.7}',
+].join('\n');
+
+const EAT_OUT_REFINEMENT_PROMPT_EXAMPLES = [
+  'make it cheaper -> {"operation":"refine","maxBudgetLevel":2}',
+  'with wifi and quieter -> {"operation":"refine","addSoftPreferences":["wifi","quiet"],"rerankOnly":true}',
+  '500米以内 -> {"operation":"refine","spatialIntent":{"type":"near_current_location","radiusM":500,"importance":"hard"}}',
+].join('\n');
+
+const EAT_OUT_RERANK_PROMPT_EXAMPLE =
+  '{"recommendations":[{"id":"rid-cafe-1","score":0.92,"matched":["wifi","rating 4.4","240m away"],"tradeoffs":["quiet unknown"],"reason":"Matches wifi, rating 4.4, 240m away; quiet is unknown.","confidence":0.74}]}';
+
 export function buildCookPrompt(query: string): {
   system: string;
   user: string;
@@ -201,6 +222,8 @@ export function buildCookPrompt(query: string): {
       `Valid mealTime ids: ${COOK_MEAL_TIMES.join(', ')}`,
       'Valid category ids:',
       getCookCategoryGuide(),
+      'Examples:',
+      COOK_PROMPT_EXAMPLES,
       'Set cookableOnly=true for home-cooking suggestions.',
       'Only use recommendedIds when you are confident they exactly match the examples below.',
       'Condensed food catalog:',
@@ -250,6 +273,8 @@ export function buildEatOutPrompt(query: string): {
       'Use queryExpansion only for vague, low-confidence, or likely-low-result searches. Keep provider queries bounded and provider-specific.',
       'For walking-time language, set spatialIntent.maxWalkMinutes. For station or landmark language, set spatialIntent.anchorText.',
       'If route or between-people intent is requested, parse it as spatialIntent with importance=soft.',
+      'Examples:',
+      EAT_OUT_PROMPT_EXAMPLES,
       'Suggested clarifying options can include cheap, high rating, quiet, quick meal, solo-friendly, group-friendly, near station, open now, surprise me.',
       'Valid feature ids:',
       featureGuide,
@@ -273,6 +298,7 @@ export function buildEatOutRefinementPatchPrompt(params: {
       `Follow-up instruction: ${params.query}`,
       'Return a JSON object that matches the schema exactly.',
       'Examples: "not ramen" -> removeCuisines ["ramen"]; "open now" -> openNow true; "for 4 people" -> partySize 4; "somewhere quieter" -> addSoftPreferences ["quiet"], rerankOnly true.',
+      EAT_OUT_REFINEMENT_PROMPT_EXAMPLES,
       'For station/landmark/distance language, use spatialIntent. For route or between-people requests, parse as soft spatialIntent.',
     ].join('\n'),
   };
@@ -310,6 +336,8 @@ export function buildEatOutRerankPrompt({
       `Write reason text in ${getReasonLanguage(locale)}.`,
       `Ranking goal: ${goalSummary}`,
       tasteProfileSummary ? `User taste profile: ${tasteProfileSummary}` : null,
+      'Return exactly one JSON object with a recommendations array. Do not use markdown.',
+      `Example output shape: ${EAT_OUT_RERANK_PROMPT_EXAMPLE}`,
       'Return at most 8 recommendations in best-first order.',
       'Each reason must be short, concrete, and based only on candidate facts.',
       'matched and tradeoffs must quote or summarize evidence present in the fact card.',

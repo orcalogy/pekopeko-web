@@ -31,10 +31,12 @@ Deferred:
 - The default browser-local model is `Qwen3.5-0.8B-q0f16-MLC`.
 - The installed WebLLM prebuilt app config does not include that model, so
   `src/lib/llm/model-config.ts` prepends a custom `ModelRecord` with the pinned wasm library path.
+- Keep the `@mlc-ai/web-llm` package version aligned with the model library version in
+  `src/lib/llm/model-config.ts`.
 - Pass `buildLlmAppConfig(webllm.prebuiltAppConfig)` to `CreateWebWorkerMLCEngine`,
   `hasModelInCache`, and `deleteModelAllInfoInCache`; otherwise the default model can initialize
   differently from the cache UI.
-- Preferences version `3` migrates empty or previous default model ids to the current default.
+- Preferences version `5` migrates empty or previous default model ids to the current default.
   User-entered custom model ids are normalized and preserved.
 
 ## Phase 1: Shared Types, Parsers, and Prompts

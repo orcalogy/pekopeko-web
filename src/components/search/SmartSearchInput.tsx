@@ -13,6 +13,8 @@ interface SmartSearchInputProps {
   disabled?: boolean;
   loading?: boolean;
   submitDisabled?: boolean;
+  inputTestId?: string;
+  submitTestId?: string;
 }
 
 export function SmartSearchInput({
@@ -25,6 +27,8 @@ export function SmartSearchInput({
   disabled = false,
   loading = false,
   submitDisabled = false,
+  inputTestId,
+  submitTestId,
 }: SmartSearchInputProps) {
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== 'Enter' || !onSubmit || submitDisabled) {
@@ -48,6 +52,7 @@ export function SmartSearchInput({
           radius="xl"
           size="md"
           style={{ flex: 1, minWidth: 0 }}
+          data-testid={inputTestId}
         />
         {onSubmit && submitLabel ? (
           <Button
@@ -59,6 +64,7 @@ export function SmartSearchInput({
             color="orange"
             variant="filled"
             style={{ flexShrink: 0 }}
+            data-testid={submitTestId}
           >
             {submitLabel}
           </Button>

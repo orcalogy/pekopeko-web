@@ -6,11 +6,13 @@ import { useCallback, useMemo, useState } from 'react';
 import { isSemanticSearchEnabled, normalizeConfiguredLlmModel } from '@/lib/llm/availability';
 import {
   ensureLlmEngine,
-  interruptLlmGeneration,
+  isTransientLlmRuntimeError,
   markLlmRuntimeError,
   refreshLlmModelCacheStatus,
 } from '@/lib/llm/engine';
 import {
+  deriveEatOutIntentFromQuery,
+  deriveEatOutRefinementPatchFromQuery,
   parseCookIntent,
   parseEatOutIntent,
   parseEatOutRefinementPatch,
@@ -62,12 +64,30 @@ function getMessageContent(message: unknown): string {
   return '';
 }
 
+function recordLlmDebugCompletion(
+  action: 'cook-intent' | 'eat-out-intent' | 'eat-out-refinement' | 'eat-out-rerank',
+  raw: string,
+) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    if (window.localStorage.getItem('pekopeko-llm-debug') !== '1') return;
+    window.localStorage.setItem(
+      `pekopeko-llm-debug-${action}`,
+      JSON.stringify({ action, raw, recordedAt: new Date().toISOString() }),
+    );
+  } catch {
+    // Debug recording is best-effort only.
+  }
+}
+
 export function useSemanticSearch() {
   const locale = usePreferences((state) => state.locale);
   const llmEnabled = usePreferences((state) => state.llmEnabled);
   const llmModel = usePreferences((state) => state.llmModel);
   const sessionDisabled = useLlmStore((state) => state.sessionDisabled);
   const setParsing = useLlmStore((state) => state.setParsing);
+  const setGenerating = useLlmStore((state) => state.setGenerating);
   const setReady = useLlmStore((state) => state.setReady);
   const setRuntimeMessage = useLlmStore((state) => state.setRuntimeMessage);
 
@@ -114,9 +134,10 @@ export function useSemanticSearch() {
       setParsing(task);
 
       try {
-        await interruptLlmGeneration();
         const engine = await ensureLlmEngine(normalizedModel, task);
         await refreshLlmModelCacheStatus(normalizedModel);
+        setGenerating(task);
+        await engine.resetChat(true);
         const response = await engine.chat.completions.create({
           messages,
           temperature: 0,
@@ -127,17 +148,32 @@ export function useSemanticSearch() {
           },
         });
 
+        const raw = getMessageContent(response.choices[0]?.message);
+        recordLlmDebugCompletion(action, raw);
         setReady(normalizedModel, readyMessage);
-        return getMessageContent(response.choices[0]?.message);
+        return raw;
       } catch (error) {
-        const message = markLlmRuntimeError(error);
-        notifyFatalFallback(message);
+        const isTransient = isTransientLlmRuntimeError(error);
+        const message = markLlmRuntimeError(error, { disableSession: !isTransient });
+        if (isTransient) {
+          setRuntimeMessage(`Local AI request was interrupted: ${message}`);
+        } else {
+          notifyFatalFallback(message);
+        }
         return null;
       } finally {
         setActiveTarget(null);
       }
     },
-    [normalizedModel, notifyFatalFallback, semanticEnabled, setParsing, setReady],
+    [
+      normalizedModel,
+      notifyFatalFallback,
+      semanticEnabled,
+      setGenerating,
+      setParsing,
+      setReady,
+      setRuntimeMessage,
+    ],
   );
 
   const analyzeCookQuery = useCallback(
@@ -197,22 +233,26 @@ export function useSemanticSearch() {
       );
 
       if (!raw) {
-        return { mode: 'fallback', intent: null };
+        return { mode: 'fallback', intent: deriveEatOutIntentFromQuery(normalizedQuery) };
       }
 
       try {
-        const intent = parseEatOutIntent(raw);
+        const intent = parseEatOutIntent(raw, normalizedQuery);
         if (!intent) {
           setRuntimeMessage(
             'No reliable semantic restaurant filters were found. Using keyword search.',
           );
-          return { mode: 'fallback', intent: null };
+          return { mode: 'fallback', intent: deriveEatOutIntentFromQuery(normalizedQuery) };
         }
 
         return { mode: 'semantic', intent };
       } catch {
         setRuntimeMessage('Semantic output was invalid JSON. Using keyword search.');
-        return { mode: 'fallback', intent: null, error: 'invalid-json' };
+        return {
+          mode: 'fallback',
+          intent: deriveEatOutIntentFromQuery(normalizedQuery),
+          error: 'invalid-json',
+        };
       }
     },
     [runStructuredQuery, semanticEnabled, setRuntimeMessage],
@@ -250,7 +290,7 @@ export function useSemanticSearch() {
           { role: 'user', content: prompt.user },
         ],
         EAT_OUT_RERANK_SCHEMA,
-        320,
+        520,
         'Local restaurant ranking is ready.',
       );
 
@@ -301,20 +341,27 @@ export function useSemanticSearch() {
       );
 
       if (!raw) {
-        return { mode: 'fallback', intent: null };
+        return { mode: 'fallback', intent: deriveEatOutRefinementPatchFromQuery(normalizedQuery) };
       }
 
       try {
         const intent = parseEatOutRefinementPatch(raw);
         if (!intent) {
           setRuntimeMessage('No reliable refinement patch was found. Using keyword refine.');
-          return { mode: 'fallback', intent: null };
+          return {
+            mode: 'fallback',
+            intent: deriveEatOutRefinementPatchFromQuery(normalizedQuery),
+          };
         }
 
         return { mode: 'semantic', intent };
       } catch {
         setRuntimeMessage('Refinement output was invalid JSON. Using keyword refine.');
-        return { mode: 'fallback', intent: null, error: 'invalid-json' };
+        return {
+          mode: 'fallback',
+          intent: deriveEatOutRefinementPatchFromQuery(normalizedQuery),
+          error: 'invalid-json',
+        };
       }
     },
     [runStructuredQuery, semanticEnabled, setRuntimeMessage],

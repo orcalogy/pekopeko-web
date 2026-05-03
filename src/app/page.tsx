@@ -36,6 +36,7 @@ import { useSemanticSearch } from '@/lib/llm/use-semantic-search';
 import { getCurrentSeason } from '@/lib/season-utils';
 import { getCurrentMealTime } from '@/lib/time-utils';
 import { useAppState } from '@/stores/app-state';
+import { useLlmStore } from '@/stores/llm';
 import { useLocation } from '@/stores/location';
 import { usePreferences } from '@/stores/preferences';
 import type { Food } from '@/types/food';
@@ -100,6 +101,8 @@ export default function Home() {
     EatOutSemanticIntent['clarifyingQuestion'] | null
   >(null);
   const [eatOutSubmitTarget, setEatOutSubmitTarget] = useState<'search' | 'random' | null>(null);
+  const [cookAiNotice, setCookAiNotice] = useState<string | null>(null);
+  const [eatOutAiNotice, setEatOutAiNotice] = useState<string | null>(null);
   const [cookSemanticIntent, setCookSemanticIntent] = useState<{
     keyword?: string;
     mood?: Food['moods'][number];
@@ -118,6 +121,7 @@ export default function Home() {
     analyzeCookQuery,
     analyzeEatOutQuery,
   } = useSemanticSearch();
+  const llmLastError = useLlmStore((state) => state.lastError);
 
   const mealTime = getCurrentMealTime();
   const season = getCurrentSeason(lat);
@@ -209,6 +213,15 @@ export default function Home() {
       }
 
       const result = await analyzeEatOutQuery(searchQuery);
+      if (result.mode === 'fallback') {
+        setEatOutAiNotice(
+          locale === 'zh-CN'
+            ? 'AI 暂时不可用，已按关键词继续。'
+            : locale === 'ja'
+              ? 'AI は一時的に使えないため、キーワードで続行しました。'
+              : 'AI was unavailable, so keyword search continued.',
+        );
+      }
       if (
         target !== 'random' &&
         result.intent?.confidence != null &&
@@ -220,12 +233,15 @@ export default function Home() {
       }
 
       setEatOutClarification(null);
+      if (result.mode === 'semantic') {
+        setEatOutAiNotice(null);
+      }
       return buildEatOutNavigationParams({
         query: searchQuery,
         intent: result.intent,
       });
     },
-    [analyzeEatOutQuery, normalizedEatOutQuery, semanticEnabled],
+    [analyzeEatOutQuery, locale, normalizedEatOutQuery, semanticEnabled],
   );
 
   const navigateToEatOut = useCallback(
@@ -290,6 +306,7 @@ export default function Home() {
 
     if (result.mode === 'semantic' && result.intent) {
       setCookSemanticIntent(result.intent);
+      setCookAiNotice(null);
 
       if (result.intent.mood) {
         setHasManualMoodOverride(false);
@@ -300,7 +317,14 @@ export default function Home() {
     }
 
     setCookSemanticIntent(null);
-  }, [analyzeCookQuery, normalizedCookQuery, semanticEnabled, setMood]);
+    setCookAiNotice(
+      locale === 'zh-CN'
+        ? 'AI 暂时没有可靠结果，已保留关键词筛选。'
+        : locale === 'ja'
+          ? 'AI の確かな結果がなかったため、キーワード絞り込みを維持しました。'
+          : 'AI did not return a reliable result, so keyword filters stayed in place.',
+    );
+  }, [analyzeCookQuery, locale, normalizedCookQuery, semanticEnabled, setMood]);
 
   const handleEatOutSearch = useCallback(() => {
     return navigateToEatOut('search');
@@ -326,12 +350,15 @@ export default function Home() {
   useEffect(() => {
     if (normalizedCookQuery !== undefined) {
       setCookSemanticIntent(null);
+      setCookAiNotice(null);
     }
   }, [normalizedCookQuery]);
 
   useEffect(() => {
     if (semanticEnabled) return;
     setCookSemanticIntent(null);
+    setCookAiNotice(null);
+    setEatOutAiNotice(null);
   }, [semanticEnabled]);
 
   return (
@@ -436,6 +463,8 @@ export default function Home() {
                     }
                     loading={semanticEnabled && isAnalyzingCook}
                     submitDisabled={!normalizedCookQuery}
+                    inputTestId="cook-query-input"
+                    submitTestId="cook-apply-ai"
                     placeholder={
                       locale === 'zh-CN'
                         ? '再加一点关键词，比如：汤面、香辣、快手'
@@ -457,6 +486,11 @@ export default function Home() {
                             : 'Filter locally by dish name, tags, category, or description.'
                     }
                   />
+                  {semanticEnabled && (cookAiNotice || llmLastError) && (
+                    <Text size="xs" c={llmLastError ? 'red' : 'dimmed'} data-testid="cook-ai-note">
+                      {cookAiNotice ?? llmLastError}
+                    </Text>
+                  )}
                   {cookSemanticIntent && (
                     <Group gap="xs" wrap="wrap">
                       {cookSemanticIntent.mood && !hasManualMoodOverride && (
@@ -745,6 +779,7 @@ export default function Home() {
                     onChange={(value) => {
                       setEatOutQuery(value);
                       setEatOutClarification(null);
+                      setEatOutAiNotice(null);
                     }}
                     onSubmit={handleEatOutSearch}
                     loading={
@@ -754,6 +789,8 @@ export default function Home() {
                       locale === 'zh-CN' ? '搜附近' : locale === 'ja' ? '近くを探す' : 'Search'
                     }
                     submitDisabled={!normalizedEatOutQuery}
+                    inputTestId="eat-out-query-input"
+                    submitTestId="eat-out-search-ai"
                     placeholder={
                       locale === 'zh-CN'
                         ? '比如：拉面、夜宵、咖啡馆'
@@ -775,6 +812,15 @@ export default function Home() {
                             : 'Type what you want and jump straight to nearby results.'
                     }
                   />
+                  {semanticEnabled && (eatOutAiNotice || llmLastError) && (
+                    <Text
+                      size="xs"
+                      c={llmLastError ? 'red' : 'dimmed'}
+                      data-testid="eat-out-ai-note"
+                    >
+                      {eatOutAiNotice ?? llmLastError}
+                    </Text>
+                  )}
 
                   {eatOutClarification && (
                     <Box className="app-panel-muted" p="sm" w="100%">

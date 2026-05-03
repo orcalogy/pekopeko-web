@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  deriveEatOutIntentFromQuery,
+  deriveEatOutRefinementPatchFromQuery,
   parseEatOutIntent,
   parseEatOutRefinementPatch,
   radiusFromWalkMinutes,
@@ -59,6 +61,38 @@ test('parses bounded query expansion and spatial intent', () => {
     'wifi cafe',
   ]);
   assert.deepEqual(intent?.queryExpansion?.softPreferences, ['quiet', 'wifi']);
+});
+
+test('normalizes over-literal eat-out keywords with source hints', () => {
+  const intent = parseEatOutIntent(
+    JSON.stringify({
+      keyword: 'quiet cafe where I can work',
+      confidence: 0.6,
+    }),
+    'quiet cafe where I can work',
+  );
+
+  assert.equal(intent?.keyword, 'cafe');
+  assert.deepEqual(intent?.features, ['wifi']);
+  assert.deepEqual(intent?.softPreferences, ['quiet', 'wifi']);
+});
+
+test('derives conservative eat-out fallback intent from source query', () => {
+  const intent = deriveEatOutIntentFromQuery('quiet cafe where I can work');
+
+  assert.equal(intent?.keyword, 'cafe');
+  assert.deepEqual(intent?.features, ['wifi']);
+  assert.deepEqual(intent?.softPreferences, ['quiet', 'wifi']);
+  assert.equal(intent?.confidence, 0.45);
+});
+
+test('derives conservative refinement patch from distance query', () => {
+  const patch = deriveEatOutRefinementPatchFromQuery('within 500 meters');
+
+  assert.equal(patch?.operation, 'refine');
+  assert.equal(patch?.spatialIntent?.type, 'near_current_location');
+  assert.equal(patch?.spatialIntent?.radiusM, 500);
+  assert.equal(patch?.spatialIntent?.importance, 'hard');
 });
 
 test('parses conservative refinement patches', () => {

@@ -1,7 +1,7 @@
 import type { InitProgressReport, WebWorkerMLCEngine } from '@mlc-ai/web-llm';
 import { normalizeConfiguredLlmModel } from '@/lib/llm/availability';
 import { buildLlmAppConfig } from '@/lib/llm/model-config';
-import type { LlmSupportResult } from '@/lib/llm/types';
+import type { LlmActiveTask, LlmSupportResult } from '@/lib/llm/types';
 import { useLlmStore } from '@/stores/llm';
 
 type WebLlmModule = typeof import('@mlc-ai/web-llm');
@@ -31,7 +31,7 @@ function createLlmWorker(): Worker {
   });
 }
 
-function extractErrorMessage(error: unknown): string {
+export function extractLlmErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) {
     return error.message;
   }
@@ -43,7 +43,11 @@ function extractErrorMessage(error: unknown): string {
   return 'Unknown LLM error';
 }
 
-function handleInitProgress(modelId: string, report: InitProgressReport, task: 'cook' | 'eat-out') {
+function handleInitProgress(
+  modelId: string,
+  report: InitProgressReport,
+  task: Exclude<LlmActiveTask, null>,
+) {
   getRuntimeStore().setLoading(modelId, report, task);
 }
 
@@ -72,14 +76,14 @@ export async function detectLlmSupport(): Promise<LlmSupportResult> {
   } catch (error) {
     return {
       supported: false,
-      message: `WebGPU check failed: ${extractErrorMessage(error)}`,
+      message: `WebGPU check failed: ${extractLlmErrorMessage(error)}`,
     };
   }
 }
 
 export async function ensureLlmEngine(
   modelInput: string,
-  task: 'cook' | 'eat-out',
+  task: Exclude<LlmActiveTask, null>,
 ): Promise<WebWorkerMLCEngine> {
   const modelId = normalizeConfiguredLlmModel(modelInput);
 
@@ -143,6 +147,12 @@ export async function interruptLlmGeneration() {
   }
 }
 
+export async function prepareLlmEngine(modelInput: string): Promise<void> {
+  const modelId = normalizeConfiguredLlmModel(modelInput);
+  await ensureLlmEngine(modelId, 'settings');
+  await refreshLlmModelCacheStatus(modelId);
+}
+
 export async function shutdownLlmEngine() {
   lifecycleToken += 1;
 
@@ -186,8 +196,23 @@ export async function clearLlmModelCache(modelInput: string) {
   getRuntimeStore().setIdle('Local model cache cleared.');
 }
 
-export function markLlmRuntimeError(error: unknown) {
-  const message = extractErrorMessage(error);
-  getRuntimeStore().disableSession(message);
+export function isTransientLlmRuntimeError(error: unknown): boolean {
+  const message = extractLlmErrorMessage(error).toLowerCase();
+
+  return (
+    message.includes('interrupt') ||
+    message.includes('abort') ||
+    message.includes('cancel') ||
+    message.includes('superseded')
+  );
+}
+
+export function markLlmRuntimeError(error: unknown, options?: { disableSession?: boolean }) {
+  const message = extractLlmErrorMessage(error);
+  if (options?.disableSession === false) {
+    getRuntimeStore().setError(message);
+  } else {
+    getRuntimeStore().disableSession(message);
+  }
   return message;
 }

@@ -20,7 +20,7 @@ import { useMemo, useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import type { AppLocale } from '@/lib/app-locale';
 import { isLlmFeatureAvailable } from '@/lib/llm/availability';
-import { clearLlmModelCache } from '@/lib/llm/engine';
+import { clearLlmModelCache, prepareLlmEngine } from '@/lib/llm/engine';
 import { deriveRestaurantTasteProfile } from '@/lib/llm/restaurant-taste-profile';
 import type { FeedbackAspect } from '@/lib/recommendation/types';
 import {
@@ -79,6 +79,7 @@ export default function SettingsPage() {
   const llmLastError = useLlmStore((state) => state.lastError);
   const llmSessionDisabled = useLlmStore((state) => state.sessionDisabled);
   const [clearingCache, setClearingCache] = useState(false);
+  const [preparingModel, setPreparingModel] = useState(false);
 
   const handleThemeChange = (value: string) => {
     const t = value as 'light' | 'dark' | 'auto';
@@ -129,6 +130,21 @@ export default function SettingsPage() {
       'zh-CN': '清除模型缓存',
       ja: 'モデルキャッシュを削除',
       en: 'Clear model cache',
+    },
+    aiPrepareModel: {
+      'zh-CN': '准备 AI 模型',
+      ja: 'AI モデルを準備',
+      en: 'Prepare AI model',
+    },
+    aiPrepareSuccess: {
+      'zh-CN': 'AI 模型已就绪',
+      ja: 'AI モデルの準備ができました',
+      en: 'AI model is ready',
+    },
+    aiPrepareError: {
+      'zh-CN': '准备 AI 模型失败',
+      ja: 'AI モデルの準備に失敗しました',
+      en: 'Failed to prepare AI model',
     },
     aiClearSuccess: {
       'zh-CN': '已清除模型缓存',
@@ -231,23 +247,29 @@ export default function SettingsPage() {
           : locale === 'ja'
             ? '解析中'
             : 'Parsing'
-        : llmRuntimeState === 'ready'
+        : llmRuntimeState === 'generating'
           ? locale === 'zh-CN'
-            ? '已就绪'
+            ? '生成中'
             : locale === 'ja'
-              ? '準備完了'
-              : 'Ready'
-          : llmRuntimeState === 'error'
+              ? '生成中'
+              : 'Generating'
+          : llmRuntimeState === 'ready'
             ? locale === 'zh-CN'
-              ? '已回退'
+              ? '已就绪'
               : locale === 'ja'
-                ? 'フォールバック中'
-                : 'Fallback'
-            : locale === 'zh-CN'
-              ? '未启动'
-              : locale === 'ja'
-                ? '未起動'
-                : 'Idle';
+                ? '準備完了'
+                : 'Ready'
+            : llmRuntimeState === 'error'
+              ? locale === 'zh-CN'
+                ? '已回退'
+                : locale === 'ja'
+                  ? 'フォールバック中'
+                  : 'Fallback'
+              : locale === 'zh-CN'
+                ? '未启动'
+                : locale === 'ja'
+                  ? '未起動'
+                  : 'Idle';
 
   const spicyLabels: Record<number, string> = {
     0: locale === 'zh-CN' ? '不吃辣' : locale === 'ja' ? '辛くない' : 'None',
@@ -272,6 +294,25 @@ export default function SettingsPage() {
       });
     } finally {
       setClearingCache(false);
+    }
+  };
+
+  const handlePrepareModel = async () => {
+    setPreparingModel(true);
+
+    try {
+      await prepareLlmEngine(llmModel);
+      notifications.show({
+        color: 'green',
+        message: l('aiPrepareSuccess'),
+      });
+    } catch (error) {
+      notifications.show({
+        color: 'red',
+        message: `${l('aiPrepareError')}: ${error instanceof Error ? error.message : ''}`.trim(),
+      });
+    } finally {
+      setPreparingModel(false);
     }
   };
 
@@ -423,6 +464,7 @@ export default function SettingsPage() {
                     checked={llmEnabled}
                     onChange={(event) => setLlmEnabled(event.currentTarget.checked)}
                     color="orange"
+                    data-testid="llm-toggle"
                   />
                 </Group>
 
@@ -432,13 +474,13 @@ export default function SettingsPage() {
                 <Text size="sm" c="dimmed">
                   {l('aiModel')}: {llmModel}
                 </Text>
-                <Text size="sm" c="dimmed">
+                <Text size="sm" c="dimmed" data-testid="llm-support-status">
                   {l('aiStatus')}: {aiStatusLabel}
                 </Text>
-                <Text size="sm" c="dimmed">
+                <Text size="sm" c="dimmed" data-testid="llm-runtime-status">
                   {l('aiRuntime')}: {aiRuntimeLabel}
                 </Text>
-                <Text size="sm" c="dimmed">
+                <Text size="sm" c="dimmed" data-testid="llm-cache-status">
                   {l('aiCache')}:{' '}
                   {llmIsModelCached == null
                     ? l('aiCacheUnknown')
@@ -450,12 +492,12 @@ export default function SettingsPage() {
                   <Progress value={llmProgress} color="orange" radius="xl" />
                 )}
                 {llmSupportMessage && (
-                  <Text size="xs" c="dimmed">
+                  <Text size="xs" c="dimmed" data-testid="llm-support-message">
                     {llmSupportMessage}
                   </Text>
                 )}
                 {llmRuntimeMessage && (
-                  <Text size="xs" c="dimmed">
+                  <Text size="xs" c="dimmed" data-testid="llm-runtime-message">
                     {llmRuntimeMessage}
                   </Text>
                 )}
@@ -465,20 +507,34 @@ export default function SettingsPage() {
                   </Text>
                 )}
                 {llmLastError && (
-                  <Text size="xs" c="red">
+                  <Text size="xs" c="red" data-testid="llm-last-error">
                     {llmLastError}
                   </Text>
                 )}
-                <Button
-                  variant="light"
-                  color="red"
-                  size="xs"
-                  onClick={handleClearCache}
-                  loading={clearingCache}
-                  disabled={llmAvailability !== 'supported'}
-                >
-                  {l('aiClearCache')}
-                </Button>
+                <Group gap="xs" wrap="wrap">
+                  <Button
+                    variant="light"
+                    color="orange"
+                    size="xs"
+                    onClick={handlePrepareModel}
+                    loading={preparingModel || llmRuntimeState === 'loading-model'}
+                    disabled={!llmEnabled || llmAvailability !== 'supported'}
+                    data-testid="llm-prepare-model"
+                  >
+                    {l('aiPrepareModel')}
+                  </Button>
+                  <Button
+                    variant="light"
+                    color="red"
+                    size="xs"
+                    onClick={handleClearCache}
+                    loading={clearingCache}
+                    disabled={llmAvailability !== 'supported'}
+                    data-testid="llm-clear-cache"
+                  >
+                    {l('aiClearCache')}
+                  </Button>
+                </Group>
                 <Text size="xs" c="dimmed">
                   {l('aiNote')}
                 </Text>

@@ -35,6 +35,18 @@ const MAX_SOFT_PREFERENCES = 8;
 const MAX_PROVIDER_QUERIES_PER_PROVIDER = 3;
 const MAX_PROVIDER_QUERIES_TOTAL = 6;
 
+const eatOutKeywordRules = [
+  { keyword: 'cafe', pattern: /\b(caf[eé]|coffee)\b|カフェ|喫茶|咖啡/i },
+  { keyword: 'sushi', pattern: /\bsushi\b|寿司|すし|鮨/i },
+  { keyword: 'ramen', pattern: /\bramen\b|ラーメン|拉面|拉麺/i },
+  { keyword: 'izakaya', pattern: /\bizakaya\b|居酒屋/i },
+  { keyword: 'chinese', pattern: /\bchinese\b|中餐|中華|中国菜/i },
+  { keyword: 'korean', pattern: /\bkorean\b|韓国|韩餐|韩国/i },
+  { keyword: 'bbq', pattern: /\b(bbq|barbecue|yakiniku)\b|焼肉|烤肉|烧烤/i },
+  { keyword: 'hotpot', pattern: /\bhot\s*pot\b|火锅|火鍋/i },
+  { keyword: 'dessert', pattern: /\b(dessert|sweets?)\b|甜品|スイーツ/i },
+];
+
 function parseIntentObject(raw: string): Record<string, unknown> | null {
   const parsed = JSON.parse(raw) as unknown;
 
@@ -94,6 +106,120 @@ function parseObject(value: unknown): Record<string, unknown> | null {
   }
 
   return value as Record<string, unknown>;
+}
+
+function normalizeEatOutKeyword(value: unknown): string | undefined {
+  const normalized = typeof value === 'string' ? normalizeSearchQuery(value) : '';
+  if (!normalized) return undefined;
+
+  const matchingRule = eatOutKeywordRules.find((rule) => rule.pattern.test(normalized));
+  if (matchingRule) {
+    return matchingRule.keyword;
+  }
+
+  return normalized;
+}
+
+function pushUnique<TValue>(items: TValue[] | undefined, item: TValue): TValue[] {
+  const next = items ? [...items] : [];
+  if (!next.includes(item)) {
+    next.push(item);
+  }
+  return next;
+}
+
+function applyEatOutSourceHints(
+  intent: Omit<EatOutSemanticIntent, 'confidence'>,
+  sourceQuery?: string,
+) {
+  const normalized = normalizeSearchQuery(sourceQuery);
+  if (!normalized) return;
+
+  const sourceKeyword = normalizeEatOutKeyword(normalized);
+  if (!intent.keyword && sourceKeyword) {
+    intent.keyword = sourceKeyword;
+  } else if (intent.keyword && sourceKeyword && intent.keyword === normalized) {
+    intent.keyword = sourceKeyword;
+  }
+
+  if (/\b(quiet|calm|not noisy|low noise)\b|静か|落ち着|安静/i.test(normalized)) {
+    intent.softPreferences = pushUnique(intent.softPreferences, 'quiet');
+  }
+
+  if (/\b(wifi|wi-fi|work|laptop|study)\b|仕事|作業|办公|工作/i.test(normalized)) {
+    intent.features = pushUnique(intent.features, 'wifi');
+    intent.softPreferences = pushUnique(intent.softPreferences, 'wifi');
+  }
+}
+
+export function deriveEatOutIntentFromQuery(sourceQuery: string): EatOutSemanticIntent | null {
+  const intent: Omit<EatOutSemanticIntent, 'confidence'> = {};
+  applyEatOutSourceHints(intent, sourceQuery);
+
+  if (!hasActionableEatOutIntent(intent)) {
+    return null;
+  }
+
+  return {
+    ...intent,
+    confidence: 0.45,
+  };
+}
+
+export function deriveEatOutRefinementPatchFromQuery(
+  sourceQuery: string,
+): EatOutRefinementPatch | null {
+  const normalized = normalizeSearchQuery(sourceQuery);
+  if (!normalized) return null;
+
+  const patch: EatOutRefinementPatch = { operation: 'refine' };
+  const distanceMatch = normalized.match(/(\d{2,5})\s*(m|meter|meters|米|メートル)\b/i);
+  if (distanceMatch?.[1]) {
+    const radiusM = Math.max(100, Math.min(10_000, Number.parseInt(distanceMatch[1], 10)));
+    patch.spatialIntent = {
+      type: 'near_current_location',
+      radiusM,
+      importance: /\b(within|under|inside)\b|以内|圏内/i.test(normalized) ? 'hard' : 'soft',
+    };
+  }
+
+  const walkMatch = normalized.match(/(\d{1,2})\s*(min|mins|minute|minutes|分)/i);
+  if (walkMatch?.[1]) {
+    const maxWalkMinutes = Math.max(1, Math.min(60, Number.parseInt(walkMatch[1], 10)));
+    patch.spatialIntent = {
+      type: 'near_current_location',
+      maxWalkMinutes,
+      radiusM: radiusFromWalkMinutes(maxWalkMinutes),
+      importance: /\b(within|under|inside)\b|以内|圏内/i.test(normalized) ? 'hard' : 'soft',
+    };
+  }
+
+  if (/\b(open now|currently open)\b|営業中|营业中|现在开|现在还开/i.test(normalized)) {
+    patch.openNow = true;
+  }
+
+  if (/\b(cheap|cheaper|budget|inexpensive)\b|安い|便宜|不贵/i.test(normalized)) {
+    patch.maxBudgetLevel = 2;
+  }
+
+  const addSoftPreferences: string[] = [];
+  if (/\b(quiet|quieter|calm|not noisy|low noise)\b|静か|落ち着|安静/i.test(normalized)) {
+    addSoftPreferences.push('quiet');
+  }
+  if (/\b(wifi|wi-fi|work|laptop|study)\b|仕事|作業|办公|工作/i.test(normalized)) {
+    addSoftPreferences.push('wifi');
+  }
+  if (addSoftPreferences.length > 0) {
+    patch.addSoftPreferences = [...new Set(addSoftPreferences)];
+    patch.rerankOnly = !patch.spatialIntent;
+  }
+
+  const partyMatch = normalized.match(/\b([1-9]|1[0-2])\s*(people|persons|guests|friends)\b/i);
+  if (partyMatch?.[1]) {
+    patch.partySize = Number.parseInt(partyMatch[1], 10);
+  }
+
+  return Object.keys(patch).length > 1 ? patch : null;
 }
 
 export function radiusFromWalkMinutes(minutes: number): number {
@@ -273,13 +399,12 @@ export function parseCookIntent(raw: string): CookSemanticIntent | null {
   return Object.keys(intent).length > 0 ? intent : null;
 }
 
-export function parseEatOutIntent(raw: string): EatOutSemanticIntent | null {
+export function parseEatOutIntent(raw: string, sourceQuery?: string): EatOutSemanticIntent | null {
   const parsed = parseIntentObject(raw);
   if (!parsed) return null;
 
   const intent: Omit<EatOutSemanticIntent, 'confidence'> = {};
-  const keyword =
-    typeof parsed.keyword === 'string' ? normalizeSearchQuery(parsed.keyword) : undefined;
+  const keyword = normalizeEatOutKeyword(parsed.keyword);
   if (keyword) {
     intent.keyword = keyword;
   }
@@ -361,6 +486,8 @@ export function parseEatOutIntent(raw: string): EatOutSemanticIntent | null {
     intent.softPreferences = softPreferences;
   }
 
+  applyEatOutSourceHints(intent, sourceQuery);
+
   const actionable = hasActionableEatOutIntent(intent);
   if (!actionable && !clarifyingQuestion) {
     return null;
@@ -433,12 +560,9 @@ export function parseEatOutRerank(
   factCardsOrIds: readonly RestaurantFactCard[] | readonly string[],
   locale: Locale = 'en',
 ): EatOutRerankEntry[] | null {
-  const parsed = parseIntentObject(raw);
-  if (!parsed) return null;
-
-  if (!Array.isArray(parsed.recommendations)) {
-    return null;
-  }
+  const parsed = JSON.parse(raw) as unknown;
+  const recommendationCandidates = getRerankRecommendationCandidates(parsed);
+  if (!recommendationCandidates) return null;
 
   const factCards = factCardsOrIds.filter(
     (item): item is RestaurantFactCard => typeof item === 'object',
@@ -446,28 +570,27 @@ export function parseEatOutRerank(
   const validIds =
     factCards.length > 0 ? factCards.map((card) => card.id) : (factCardsOrIds as readonly string[]);
   const factCardById = new Map(factCards.map((card) => [card.id, card]));
+  const factCardByName = new Map(factCards.map((card) => [card.name.toLowerCase(), card]));
   const validIdSet = new Set(validIds);
   const seen = new Set<string>();
   const recommendations: EatOutRerankEntry[] = [];
 
-  for (const item of parsed.recommendations) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      continue;
-    }
-
-    const id = typeof item.id === 'string' ? item.id : null;
+  for (const item of recommendationCandidates) {
+    const itemObject = parseObject(item);
+    const id = resolveRerankCandidateId(item, itemObject, validIdSet, factCardByName);
     if (!id || !validIdSet.has(id) || seen.has(id)) {
       continue;
     }
 
     const factCard = factCardById.get(id);
-    const matched = sanitizeEvidenceList(item.matched, factCard);
-    const tradeoffs = sanitizeEvidenceList(item.tradeoffs, factCard);
-    const rawReason = typeof item.reason === 'string' ? normalizeSearchQuery(item.reason) : '';
+    const matched = sanitizeEvidenceList(itemObject?.matched, factCard);
+    const tradeoffs = sanitizeEvidenceList(itemObject?.tradeoffs, factCard);
+    const rawReason =
+      typeof itemObject?.reason === 'string' ? normalizeSearchQuery(itemObject.reason) : '';
     const reason =
       rawReason && (!factCard || isGroundedReason(rawReason, factCard))
         ? rawReason
-        : composeGroundedReason(locale, factCard, matched, tradeoffs);
+        : composeGroundedReason(locale, factCard, matched, tradeoffs) || id;
 
     if (!reason) {
       continue;
@@ -477,10 +600,10 @@ export function parseEatOutRerank(
     recommendations.push({
       id,
       reason,
-      score: clampUnitInterval(item.score, 0),
+      score: clampUnitInterval(itemObject?.score, 0),
       matched,
       tradeoffs,
-      confidence: clampUnitInterval(item.confidence, factCard ? 0.6 : 0.5),
+      confidence: clampUnitInterval(itemObject?.confidence, factCard ? 0.6 : 0.5),
     });
 
     if (recommendations.length >= 8) {
@@ -489,6 +612,58 @@ export function parseEatOutRerank(
   }
 
   return recommendations.length > 0 ? recommendations : null;
+}
+
+function getRerankRecommendationCandidates(parsed: unknown): unknown[] | null {
+  if (Array.isArray(parsed)) {
+    return parsed;
+  }
+
+  const parsedObject = parseObject(parsed);
+  if (!parsedObject) return null;
+
+  for (const key of ['recommendations', 'ranking', 'rankings', 'items', 'restaurants', 'order']) {
+    const value = parsedObject[key];
+    if (Array.isArray(value)) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function resolveRerankCandidateId(
+  item: unknown,
+  itemObject: Record<string, unknown> | null,
+  validIdSet: Set<string>,
+  factCardByName: Map<string, RestaurantFactCard>,
+): string | null {
+  const candidateStrings =
+    typeof item === 'string'
+      ? [item]
+      : [
+          itemObject?.id,
+          itemObject?.restaurantId,
+          itemObject?.restaurant_id,
+          itemObject?.restaurantKey,
+          itemObject?.restaurant_key,
+          itemObject?.name,
+        ];
+
+  for (const candidate of candidateStrings) {
+    if (typeof candidate !== 'string') continue;
+
+    if (validIdSet.has(candidate)) {
+      return candidate;
+    }
+
+    const factCard = factCardByName.get(candidate.toLowerCase());
+    if (factCard) {
+      return factCard.id;
+    }
+  }
+
+  return null;
 }
 
 function sanitizeEvidenceList(value: unknown, factCard?: RestaurantFactCard): string[] {

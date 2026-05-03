@@ -38,10 +38,15 @@ export function FoodPicker({ candidates, locale, picking, onResult, onPickEnd }:
 
   // Build a shuffled display list when candidates change
   useEffect(() => {
-    if (candidates.length > 0) {
-      const shuffled = shuffleArray(candidates).slice(0, Math.min(candidates.length, 30));
-      setDisplayItems(shuffled.map((food) => ({ food, uid: nextUid() })));
+    if (candidates.length === 0) {
+      setDisplayItems([]);
+      setWinnerIndex(-1);
+      setPhase('idle');
+      return;
     }
+
+    const shuffled = shuffleArray(candidates).slice(0, Math.min(candidates.length, 30));
+    setDisplayItems(shuffled.map((food) => ({ food, uid: nextUid() })));
   }, [candidates]);
 
   // Start picking animation
@@ -159,30 +164,51 @@ export function FoodPicker({ candidates, locale, picking, onResult, onPickEnd }:
                 : { duration: 0 }
           }
         >
-          {displayItems.map(({ food, uid }, idx) => (
+          {displayItems.length === 0 ? (
             <Box
-              key={uid}
               style={{
-                height: ITEM_HEIGHT,
+                height: ITEM_HEIGHT * VISIBLE_ITEMS,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 padding: '0 16px',
               }}
             >
-              <Text
-                size="lg"
-                fw={idx === centerIdx && phase === 'done' ? 700 : 500}
-                ta="center"
-                style={{
-                  color: idx === centerIdx && phase === 'done' ? theme.colors.orange[5] : undefined,
-                  transition: 'color 0.2s',
-                }}
-              >
-                {food.name[locale]}
+              <Text size="sm" c="dimmed" ta="center">
+                {locale === 'zh-CN'
+                  ? '没有匹配的候选'
+                  : locale === 'ja'
+                    ? '一致する候補がありません'
+                    : 'No matching candidates'}
               </Text>
             </Box>
-          ))}
+          ) : (
+            displayItems.map(({ food, uid }, idx) => (
+              <Box
+                key={uid}
+                style={{
+                  height: ITEM_HEIGHT,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '0 16px',
+                }}
+              >
+                <Text
+                  size="lg"
+                  fw={idx === centerIdx && phase === 'done' ? 700 : 500}
+                  ta="center"
+                  style={{
+                    color:
+                      idx === centerIdx && phase === 'done' ? theme.colors.orange[5] : undefined,
+                    transition: 'color 0.2s',
+                  }}
+                >
+                  {food.name[locale]}
+                </Text>
+              </Box>
+            ))
+          )}
         </motion.div>
       </Box>
 

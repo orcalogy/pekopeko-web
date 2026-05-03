@@ -1,14 +1,15 @@
 import type { AppConfig, ModelRecord } from '@mlc-ai/web-llm';
 import { DEFAULT_LLM_MODEL } from '@/lib/llm/availability';
 
+export const WEB_LLM_QWEN35_MODEL_LIB_VERSION = 'v0_2_83/base';
+
 const WEB_LLM_MODEL_LIB_PREFIX =
   'https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/';
-const QWEN_35_MODEL_VERSION = 'v0_2_83/base';
 
 const qwen35DefaultModel = {
   model: `https://huggingface.co/mlc-ai/${DEFAULT_LLM_MODEL}`,
   model_id: DEFAULT_LLM_MODEL,
-  model_lib: `${WEB_LLM_MODEL_LIB_PREFIX}${QWEN_35_MODEL_VERSION}/Qwen3.5-0.8B-q0f16_cs1k-webgpu.wasm`,
+  model_lib: `${WEB_LLM_MODEL_LIB_PREFIX}${WEB_LLM_QWEN35_MODEL_LIB_VERSION}/Qwen3.5-0.8B-q0f16_cs1k-webgpu.wasm`,
   vram_required_MB: 2660.27,
   low_resource_required: true,
   overrides: {

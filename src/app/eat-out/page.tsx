@@ -69,6 +69,7 @@ import {
   normalizeSearchRadiusKm,
   SEARCH_RADIUS_MARK_PRESETS_KM,
 } from '@/lib/search-radius';
+import { useLlmStore } from '@/stores/llm';
 import { useLocation } from '@/stores/location';
 import { usePreferences } from '@/stores/preferences';
 import { type FeedbackEvent, useRestaurantFeedback } from '@/stores/restaurant-feedback';
@@ -77,6 +78,7 @@ import type { Locale } from '@/types/food';
 import type { Restaurant } from '@/types/restaurant';
 
 type SortBy = 'distance' | 'rating';
+type RestaurantSearchPayloadItem = Omit<Restaurant, 'id'> & Partial<Pick<Restaurant, 'id'>>;
 const LOCATION_MAX_AGE_MS = 30 * 60 * 1000;
 const PERSISTENT_MAP_HEIGHT = 196;
 const MAX_BUDGET_LEVEL = 4;
@@ -150,6 +152,28 @@ function normalizeProviderQueryExpansion(
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
+function getProviderBackedRestaurantId(restaurant: RestaurantSearchPayloadItem): string | null {
+  const providerRef = restaurant.providerRefs?.find((ref) => ref.providerId.trim());
+  if (providerRef) {
+    return `${providerRef.provider}:${providerRef.providerId}`;
+  }
+
+  return null;
+}
+
+function normalizeRestaurantSearchResult(restaurant: RestaurantSearchPayloadItem): Restaurant {
+  const id =
+    restaurant.id?.trim() ||
+    restaurant.restaurantKey?.trim() ||
+    getProviderBackedRestaurantId(restaurant) ||
+    `${restaurant.source ?? 'unknown'}:${restaurant.name}:${restaurant.lat}:${restaurant.lng}`;
+
+  return {
+    ...restaurant,
+    id,
+  };
+}
+
 function getAspectOptionsForFeedback(
   kind: 'liked_after_visit' | 'disliked_after_visit' | 'not_interested',
 ): FeedbackAspect[] {
@@ -206,6 +230,7 @@ function EatOutContent() {
     analyzeEatOutRefinement,
     rerankEatOutResults,
   } = useSemanticSearch();
+  const l = useLabels(locale);
 
   const {
     lat,
@@ -224,6 +249,8 @@ function EatOutContent() {
   const [error, setError] = useState<string | null>(null);
   const [refineQuery, setRefineQuery] = useState('');
   const [refineMode, setRefineMode] = useState<'semantic' | 'keyword' | null>(null);
+  const [refineAiNotice, setRefineAiNotice] = useState<string | null>(null);
+  const [rerankAiNotice, setRerankAiNotice] = useState<string | null>(null);
   const [appliedRefineIntent, setAppliedRefineIntent] = useState<EatOutSemanticIntent | null>(null);
   const [searchSessionGoal, setSearchSessionGoal] = useState<SearchSessionGoal>({
     originalQuery: keyword || undefined,
@@ -247,12 +274,14 @@ function EatOutContent() {
   const [tempMinRating, setTempMinRating] = useState<number | null>(null);
   const [tempMaxBudgetLevel, setTempMaxBudgetLevel] = useState<number | null>(null);
   const [tempPartySize, setTempPartySize] = useState<number | null>(null);
+  const [tempRadiusM, setTempRadiusM] = useState<number | null>(null);
   const [tempSortBy, setTempSortBy] = useState<SortBy | null>(null);
   const [tempRequiredFeatures, setTempRequiredFeatures] = useState<
     NonNullable<EatOutSemanticIntent['features']>
   >([]);
   const [aiRerankEntries, setAiRerankEntries] = useState<EatOutRerankEntry[]>([]);
   const [randomPickMode, setRandomPickMode] = useState<RandomPickMode>('balanced');
+  const llmLastError = useLlmStore((state) => state.lastError);
   const [pendingAspectFeedback, setPendingAspectFeedback] = useState<{
     eventId: string;
     restaurantId: string;
@@ -285,6 +314,8 @@ function EatOutContent() {
       const initialSoftPreferences = parseStringListParam(softPreferencesParam);
 
       setRefineMode(null);
+      setRefineAiNotice(null);
+      setRerankAiNotice(null);
       setAppliedRefineIntent(null);
       setClarification(null);
       setProviderQueryExpansion(parseProviderKeywordsParam(providerKeywordsParam));
@@ -305,6 +336,7 @@ function EatOutContent() {
       setTempMinRating(null);
       setTempMaxBudgetLevel(null);
       setTempPartySize(null);
+      setTempRadiusM(null);
       setTempSortBy(null);
       setTempRequiredFeatures([]);
 
@@ -318,6 +350,7 @@ function EatOutContent() {
       keyword,
       openNowFromQuery,
       providerKeywordsParam,
+      radiusMParam,
       softPreferencesParam,
     ],
   );
@@ -328,7 +361,7 @@ function EatOutContent() {
 
   const baseSearchResetKey = `${categoryId ?? ''}|${keyword}|${hasOpenNowParam ? '1' : '0'}|${
     openNowFromQuery ? '1' : '0'
-  }`;
+  }|${providerKeywordsParam ?? ''}|${softPreferencesParam ?? ''}|${radiusMParam ?? ''}`;
 
   useEffect(() => {
     void baseSearchResetKey;
@@ -343,15 +376,15 @@ function EatOutContent() {
   const effectiveMaxBudgetLevel = tempMaxBudgetLevel ?? maxBudgetLevel;
   const effectivePartySize = tempPartySize ?? partySize;
   const effectiveSortBy = tempSortBy ?? sortBy;
-  const aiRerankResetKey = [
-    baseSearchResetKey,
-    effectiveMinRating,
-    effectiveMaxBudgetLevel,
-    effectivePartySize,
-    effectiveOpenOnly ? '1' : '0',
-    effectiveSortBy,
-    tempRequiredFeatures.join(','),
-  ].join('|');
+  const providerQueryExpansionSignature = useMemo(
+    () => JSON.stringify(normalizeProviderQueryExpansion(providerQueryExpansion) ?? {}),
+    [providerQueryExpansion],
+  );
+  const softPreferenceSignature = useMemo(() => softPreferences.join(','), [softPreferences]);
+  const requiredFeatureSignature = useMemo(
+    () => tempRequiredFeatures.join(','),
+    [tempRequiredFeatures],
+  );
   const recommendationStateSignature = useMemo(
     () =>
       [
@@ -370,8 +403,25 @@ function EatOutContent() {
     radiusMParam && Number.isFinite(Number(radiusMParam))
       ? Math.max(0.1, Math.min(10, Number(radiusMParam) / 1000))
       : null;
-  const effectiveSearchRadiusKm = normalizeSearchRadiusKm(radiusFromIntentKm ?? searchRadiusKm);
+  const radiusFromRefinementKm =
+    tempRadiusM != null ? Math.max(0.1, Math.min(10, tempRadiusM / 1000)) : null;
+  const effectiveSearchRadiusKm = normalizeSearchRadiusKm(
+    radiusFromRefinementKm ?? radiusFromIntentKm ?? searchRadiusKm,
+  );
   const searchRadiusIndex = getSearchRadiusPresetIndex(effectiveSearchRadiusKm);
+  const aiRerankResetKey = [
+    effectiveKeyword,
+    effectiveCategoryId ?? '',
+    effectiveMinRating,
+    effectiveMaxBudgetLevel,
+    effectivePartySize,
+    effectiveOpenOnly ? '1' : '0',
+    effectiveSortBy,
+    effectiveSearchRadiusKm,
+    providerQueryExpansionSignature,
+    softPreferenceSignature,
+    requiredFeatureSignature,
+  ].join('|');
   const hasCoordinates = lat != null && lng != null;
   const hasSearchLocation = hasCoordinates && !!provider;
   const needsFreshLocation =
@@ -541,8 +591,8 @@ function EatOutContent() {
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error('Search failed');
-      const data = (await res.json()) as { results?: Restaurant[] };
-      const results = data.results ?? [];
+      const data = (await res.json()) as { results?: RestaurantSearchPayloadItem[] };
+      const results = (data.results ?? []).map(normalizeRestaurantSearchResult);
 
       results.sort((a, b) => a.distance - b.distance);
 
@@ -801,6 +851,7 @@ function EatOutContent() {
   const applyRefinementPatch = useCallback(
     (patch: EatOutRefinementPatch, sourceText: string) => {
       setRefineMode('semantic');
+      setRefineAiNotice(null);
       setAppliedRefineIntent(null);
       setClarification(null);
 
@@ -816,6 +867,9 @@ function EatOutContent() {
       }
       if (patch.partySize != null) {
         setTempPartySize(Math.max(partySize, patch.partySize));
+      }
+      if (patch.spatialIntent?.radiusM != null) {
+        setTempRadiusM(patch.spatialIntent.radiusM);
       }
       if (patch.addSoftPreferences?.length) {
         setSoftPreferences((current) => [
@@ -879,6 +933,7 @@ function EatOutContent() {
             ? `budget at most ${'¥'.repeat(effectiveMaxBudgetLevel)}`
             : null,
           effectivePartySize > 1 ? `party size ${effectivePartySize}` : null,
+          `search radius ${formatSearchRadius(effectiveSearchRadiusKm)}`,
           softPreferences.length > 0 ? `soft preferences: ${softPreferences.join(', ')}` : null,
           searchSessionGoal.rejectedAspects.length > 0
             ? `rejected: ${searchSessionGoal.rejectedAspects.join(', ')}`
@@ -890,8 +945,11 @@ function EatOutContent() {
           .filter(Boolean)
           .join('; '),
       });
-      if (patchResult.mode === 'semantic' && patchResult.intent) {
+      if (patchResult.intent) {
         applyRefinementPatch(patchResult.intent, normalizedRefineQuery);
+        if (patchResult.mode === 'fallback') {
+          setRefineAiNotice(l.aiRefineFallback);
+        }
         return;
       }
 
@@ -899,6 +957,9 @@ function EatOutContent() {
       if (result.mode === 'semantic' && result.intent) {
         nextIntent = result.intent;
         nextMode = 'semantic';
+        setRefineAiNotice(null);
+      } else {
+        setRefineAiNotice(l.aiRefineFallback);
       }
     }
 
@@ -937,6 +998,7 @@ function EatOutContent() {
     setTempPartySize(
       nextIntent.partySize != null ? Math.max(partySize, nextIntent.partySize) : null,
     );
+    setTempRadiusM(nextIntent.spatialIntent?.radiusM ?? null);
     setTempSortBy(nextIntent.sortBy ?? null);
     setTempRequiredFeatures(nextIntent.features ?? []);
     setProviderQueryExpansion(
@@ -958,6 +1020,7 @@ function EatOutContent() {
     effectiveMaxBudgetLevel,
     effectiveOpenOnly,
     effectivePartySize,
+    effectiveSearchRadiusKm,
     isRandomMode,
     maxBudgetLevel,
     minRating,
@@ -966,6 +1029,7 @@ function EatOutContent() {
     searchSessionGoal,
     semanticEnabled,
     softPreferences,
+    l.aiRefineFallback,
   ]);
 
   const handleRefinementChip = useCallback(
@@ -1033,6 +1097,7 @@ function EatOutContent() {
     if (effectivePartySize > 1) {
       parts.push(`party size ${effectivePartySize}`);
     }
+    parts.push(`search radius ${formatSearchRadius(effectiveSearchRadiusKm)}`);
     if (tempRequiredFeatures.length > 0) {
       parts.push(`required features: ${tempRequiredFeatures.join(', ')}`);
     }
@@ -1051,6 +1116,7 @@ function EatOutContent() {
     effectiveMinRating,
     effectiveOpenOnly,
     effectivePartySize,
+    effectiveSearchRadiusKm,
     softPreferences,
     tempRequiredFeatures,
   ]);
@@ -1077,6 +1143,7 @@ function EatOutContent() {
     });
 
     setAiRerankEntries(result.mode === 'semantic' ? result.items : []);
+    setRerankAiNotice(result.mode === 'semantic' ? null : l.aiRerankFallback);
   }, [
     aiRerankCandidates,
     aiRerankFactCards,
@@ -1084,6 +1151,7 @@ function EatOutContent() {
     rerankEatOutResults,
     semanticEnabled,
     tasteProfilePromptSummary,
+    l.aiRerankFallback,
   ]);
 
   useEffect(() => {
@@ -1111,7 +1179,6 @@ function EatOutContent() {
     fetchRestaurants();
   }, [fetchRestaurants, hasSearchLocation]);
 
-  const l = useLabels(locale);
   const pageTitle = effectiveKeyword || effectiveCategory?.name[locale] || l.title;
   const hasResults = !loading && !error && restaurants.length > 0;
   const hasActiveClientFilters =
@@ -1211,14 +1278,24 @@ function EatOutContent() {
 
               <SmartSearchInput
                 value={refineQuery}
-                onChange={setRefineQuery}
+                onChange={(value) => {
+                  setRefineQuery(value);
+                  setRefineAiNotice(null);
+                }}
                 onSubmit={handleRefineSearch}
                 loading={semanticEnabled && isAnalyzingEatOut}
                 submitLabel={semanticEnabled ? l.refineSubmitAi : l.refineSubmit}
                 submitDisabled={!normalizeSearchQuery(refineQuery)}
                 placeholder={l.refinePlaceholder}
                 description={semanticEnabled ? l.refineDescriptionAi : l.refineDescription}
+                inputTestId="eat-out-refine-input"
+                submitTestId="eat-out-refine-ai"
               />
+              {semanticEnabled && (refineAiNotice || llmLastError) && (
+                <Text size="xs" c={llmLastError ? 'red' : 'dimmed'} data-testid="refine-ai-note">
+                  {refineAiNotice ?? llmLastError}
+                </Text>
+              )}
 
               {(clarification || semanticEnabled) && (
                 <Box className="app-panel-muted" p="sm">
@@ -1285,6 +1362,11 @@ function EatOutContent() {
                     {tempPartySize != null && (
                       <Badge variant="light" color="grape" radius="xl">
                         {l.partySizeBadge(tempPartySize)}
+                      </Badge>
+                    )}
+                    {tempRadiusM != null && (
+                      <Badge variant="light" color="orange" radius="xl">
+                        {l.distance}: {formatSearchRadius(tempRadiusM / 1000)}
                       </Badge>
                     )}
                     {tempSortBy && (
@@ -1385,7 +1467,10 @@ function EatOutContent() {
                       </Group>
                       <Slider
                         value={searchRadiusIndex}
-                        onChange={(value) => setSearchRadius(getSearchRadiusKmForIndex(value))}
+                        onChange={(value) => {
+                          setTempRadiusM(null);
+                          setSearchRadius(getSearchRadiusKmForIndex(value));
+                        }}
                         label={(value) => formatSearchRadius(getSearchRadiusKmForIndex(value))}
                         min={0}
                         max={getSearchRadiusSliderMax()}
@@ -2051,11 +2136,22 @@ function EatOutContent() {
                           radius="xl"
                           onClick={handleAiRerank}
                           loading={isRerankingEatOut}
+                          data-testid="eat-out-rerank-ai"
                         >
                           {aiRerankEntries.length > 0 ? l.refreshAiRank : l.applyAiRank}
                         </Button>
                       </Group>
                     </Group>
+                    {semanticEnabled && (rerankAiNotice || llmLastError) && (
+                      <Text
+                        size="xs"
+                        c={llmLastError ? 'red' : 'dimmed'}
+                        mt="xs"
+                        data-testid="rerank-ai-note"
+                      >
+                        {rerankAiNotice ?? llmLastError}
+                      </Text>
+                    )}
 
                     {hasTasteProfileSignals && tasteProfile && (
                       <Group gap="xs" wrap="wrap" mt="sm">
@@ -2314,6 +2410,12 @@ function useLabels(locale: Locale) {
           : locale === 'ja'
             ? '一文で現在の結果を一時的に絞り込みます。'
             : 'Temporarily refine the current results with one short query.',
+      aiRefineFallback:
+        locale === 'zh-CN'
+          ? 'AI 暂时没有可靠细化结果，已按关键词临时筛选。'
+          : locale === 'ja'
+            ? 'AI の確かな絞り込み結果がなかったため、キーワードで一時的に絞り込みました。'
+            : 'AI did not return a reliable refinement, so keyword refine was used.',
       refineAppliedAi:
         locale === 'zh-CN' ? 'AI 已细化' : locale === 'ja' ? 'AIで絞り込み済み' : 'AI refined',
       refineApplied:
@@ -2339,6 +2441,12 @@ function useLabels(locale: Locale) {
         locale === 'zh-CN' ? '重新排序' : locale === 'ja' ? '並び替え直す' : 'Refresh rank',
       clearAiRank: locale === 'zh-CN' ? '清除排序' : locale === 'ja' ? 'AI順を解除' : 'Clear rank',
       aiRankShort: locale === 'zh-CN' ? 'AI 顺序' : locale === 'ja' ? 'AI順' : 'AI order',
+      aiRerankFallback:
+        locale === 'zh-CN'
+          ? 'AI 暂时无法可靠排序，已保留当前顺序。'
+          : locale === 'ja'
+            ? 'AI の並び替えが信頼できなかったため、現在の順序を維持しました。'
+            : 'AI could not produce a reliable ranking, so the current order stayed in place.',
       tasteProfileTitle:
         locale === 'zh-CN' ? '你的口味' : locale === 'ja' ? 'あなたの傾向' : 'Your taste',
       openOnly:

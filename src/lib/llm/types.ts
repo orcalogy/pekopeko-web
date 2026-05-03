@@ -120,7 +120,14 @@ export type LlmAvailabilityState =
   | 'supported'
   | 'unsupported';
 
-export type LlmRuntimeState = 'idle' | 'disabled' | 'loading-model' | 'ready' | 'parsing' | 'error';
+export type LlmRuntimeState =
+  | 'idle'
+  | 'disabled'
+  | 'loading-model'
+  | 'ready'
+  | 'parsing'
+  | 'generating'
+  | 'error';
 
 export type LlmActiveTask = 'cook' | 'eat-out' | 'settings' | null;
 

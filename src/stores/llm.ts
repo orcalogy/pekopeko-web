@@ -18,6 +18,7 @@ interface LlmState {
   setRuntimeDisabled: () => void;
   setLoading: (modelId: string, report?: InitProgressReport | null, task?: LlmActiveTask) => void;
   setParsing: (task: Exclude<LlmActiveTask, null>) => void;
+  setGenerating: (task: Exclude<LlmActiveTask, null>) => void;
   setReady: (modelId: string, runtimeMessage?: string | null) => void;
   setRuntimeMessage: (runtimeMessage: string | null) => void;
   setModelCached: (isModelCached: boolean | null) => void;
@@ -84,6 +85,14 @@ export const useLlmStore = create<LlmState>()((set) => ({
       runtimeState: 'parsing',
       activeTask: task,
       runtimeMessage: 'Analyzing your request locally…',
+      lastError: null,
+    }),
+
+  setGenerating: (task) =>
+    set({
+      runtimeState: 'generating',
+      activeTask: task,
+      runtimeMessage: 'Generating a local AI response…',
       lastError: null,
     }),
 
