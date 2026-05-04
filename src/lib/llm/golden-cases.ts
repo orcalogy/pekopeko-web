@@ -111,6 +111,19 @@ export const cookGoldenCases = [
     query: '今天有点累，想吃治愈的',
     expected: { mood: 'comfort' },
   },
+  {
+    id: 'cook-ja-low-appetite',
+    kind: 'cook',
+    locale: 'ja',
+    query: '食欲ない',
+    expected: {
+      mood: 'tired',
+      maxSpicy: 0,
+      occasion: 'low_appetite',
+      softPreferences: ['gentle', 'soup'],
+      avoidPreferences: ['heavy'],
+    },
+  },
 ] satisfies CookGoldenCase[];
 
 export const eatOutIntentGoldenCases = [
@@ -187,6 +200,19 @@ export const eatOutIntentGoldenCases = [
     query: '现在还开着的夜宵',
     expected: { openNow: true },
     minConfidence: 0.45,
+  },
+  {
+    id: 'eat-ja-low-appetite',
+    kind: 'eat-out-intent',
+    locale: 'ja',
+    query: '食欲ない',
+    expected: {
+      occasion: 'low_appetite',
+      softPreferences: ['gentle', 'soup'],
+      avoidPreferences: ['heavy', 'spicy'],
+    },
+    minConfidence: 0.45,
+    forbiddenHardFilters: ['keyword', 'category'],
   },
 ] satisfies EatOutIntentGoldenCase[];
 
@@ -287,4 +313,4 @@ export const llmGoldenCases = [
   ...eatOutRerankGoldenCases,
 ] satisfies LlmGoldenCase[];
 
-export const LLM_GOLDEN_CASE_COUNT = 24;
+export const LLM_GOLDEN_CASE_COUNT = 26;

@@ -15,6 +15,25 @@ test('builds compact restaurant fact cards', () => {
   assert.equal(cards[0]?.missingFacts.includes('noise'), true);
 });
 
+test('adds grounded preference and risk evidence for low-appetite reranking', () => {
+  const cards = buildRestaurantFactCards({
+    restaurants: mockRestaurants,
+    currentIntent: {
+      confidence: 0.8,
+      occasion: 'low_appetite',
+      softPreferences: ['light', 'gentle', 'warm', 'soup', 'small_portion'],
+      avoidPreferences: ['heavy', 'rich', 'alcohol_focused'],
+    },
+  });
+  const udon = cards.find((card) => card.id === 'rid-udon-1');
+  const ramen = cards.find((card) => card.id === 'rid-ramen-1');
+  const izakaya = cards.find((card) => card.id === 'rid-izakaya-1');
+
+  assert.ok(udon?.preferenceEvidence?.some((item) => item.includes('gentle')));
+  assert.ok(ramen?.riskEvidence?.some((item) => item.includes('heavy')));
+  assert.ok(izakaya?.riskEvidence?.some((item) => item.includes('alcohol')));
+});
+
 test('rejects invalid LLM rerank ids', () => {
   const rerank = parseEatOutRerank(
     JSON.stringify({

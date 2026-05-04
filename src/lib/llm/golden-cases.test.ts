@@ -13,8 +13,8 @@ import { parseEatOutRerank } from '@/lib/llm/intent-parser';
 
 test('LLM golden set has the expected coverage shape', () => {
   assert.equal(llmGoldenCases.length, LLM_GOLDEN_CASE_COUNT);
-  assert.equal(cookGoldenCases.length, 8);
-  assert.equal(eatOutIntentGoldenCases.length, 8);
+  assert.equal(cookGoldenCases.length, 9);
+  assert.equal(eatOutIntentGoldenCases.length, 9);
   assert.equal(eatOutRefinementGoldenCases.length, 4);
   assert.equal(eatOutRerankGoldenCases.length, 4);
 

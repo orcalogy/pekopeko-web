@@ -80,6 +80,27 @@ test('fixture-backed Qwen3.5 local LLM flow covers settings, cook, search, refin
     timeout: FLOW_TIMEOUT_MS,
   });
   console.log('[llm-e2e] refinement applied');
+
+  await seedLowAppetiteLocalIntent(page);
+  await page.goto('/eat-out?localIntent=low-appetite-e2e');
+  await expect(page).toHaveURL(/\/eat-out\?/u, { timeout: FLOW_TIMEOUT_MS });
+  await expect(page).toHaveURL(/localIntent=/u);
+  await expect(page).not.toHaveURL(/keyword=/u);
+  await expect(page).not.toHaveURL(/category=/u);
+  const lowAppetiteSearchBody = fixtureSearchBodies.at(-1) as
+    | { query?: { keyword?: string; categoryId?: string; providerKeywords?: unknown } }
+    | undefined;
+  expect(lowAppetiteSearchBody?.query?.keyword).toBeUndefined();
+  expect(lowAppetiteSearchBody?.query?.categoryId).toBeUndefined();
+  expect(lowAppetiteSearchBody?.query?.providerKeywords).toBeUndefined();
+  await expect(page.getByText('Gentle Udon', { exact: true }).last()).toBeVisible({
+    timeout: FLOW_TIMEOUT_MS,
+  });
+  const resultText = await page.locator('body').textContent();
+  expect(resultText?.indexOf('Gentle Udon') ?? Number.POSITIVE_INFINITY).toBeLessThan(
+    resultText?.indexOf('Group Izakaya') ?? Number.POSITIVE_INFINITY,
+  );
+  console.log('[llm-e2e] low-appetite local ranking applied');
 });
 
 test('AI disabled keeps keyword-only cook search usable', async ({ page }) => {
@@ -189,6 +210,34 @@ async function seedLocalState(page: Page, options?: { llmEnabled?: boolean }) {
       }),
     );
   }, { llmEnabled: options?.llmEnabled ?? true, modelId: DEFAULT_LLM_MODEL });
+}
+
+async function seedLowAppetiteLocalIntent(page: Page) {
+  await page.evaluate(() => {
+    window.sessionStorage.setItem(
+      'pekopeko:eat-out-local-intent:low-appetite-e2e',
+      JSON.stringify({
+        originalQuery: '食欲ない',
+        createdAt: Date.now(),
+        intent: {
+          confidence: 0.8,
+          occasion: 'low_appetite',
+          softPreferences: ['light', 'gentle', 'warm', 'soup', 'small_portion'],
+          avoidPreferences: [
+            'spicy',
+            'fried',
+            'heavy',
+            'rich',
+            'large_portion',
+            'alcohol_focused',
+            'bbq',
+            'hotpot',
+            'fastfood',
+          ],
+        },
+      }),
+    );
+  });
 }
 
 async function routeFixtureRestaurants(page: Page) {

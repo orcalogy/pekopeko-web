@@ -14,7 +14,7 @@
     "openapi:validate": "openapi-generator validate -i openapi/pekopeko-api.yaml",
     "openapi:generate:ts": "openapi-generator generate -i openapi/pekopeko-api.yaml -g typescript-fetch -c openapi/openapi-generator.typescript-fetch.yaml -o src/generated/api",
     "openapi:generate": "pnpm openapi:validate && pnpm openapi:generate:ts",
-    "test:llm": "node --import ./scripts/register-ts-path-alias-loader.mjs --test src/lib/llm/availability.test.ts src/lib/llm/golden-cases.test.ts src/lib/llm/intent-parser.test.ts src/lib/llm/eat-out-navigation.test.ts src/lib/llm/restaurant-shortlist.test.ts src/lib/recommendation/profile.test.ts src/lib/recommendation/random-pick.test.ts",
+    "test:llm": "node --import ./scripts/register-ts-path-alias-loader.mjs --test src/lib/llm/availability.test.ts src/lib/llm/golden-cases.test.ts src/lib/llm/intent-parser.test.ts src/lib/llm/eat-out-navigation.test.ts src/lib/llm/restaurant-shortlist.test.ts src/lib/food-filter.test.ts src/lib/recommendation/profile.test.ts src/lib/recommendation/random-pick.test.ts src/lib/recommendation/scoring.test.ts",
     "test:e2e:llm": "playwright test --config=playwright.config.ts e2e/llm-fixture.spec.ts",
     "test:e2e:llm:live": "LLM_E2E_LIVE=1 playwright test --config=playwright.config.ts e2e/llm-live.spec.ts",
     "test:db:registry": "node --import ./scripts/register-ts-path-alias-loader.mjs --test src/lib/api/restaurant-registry.db.test.mts",

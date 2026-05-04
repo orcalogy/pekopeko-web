@@ -22,6 +22,7 @@ test('keeps semantic prompts local-only for eat-out navigation', () => {
       category: 'southeast-asian',
       confidence: 0.72,
       softPreferences: ['light'],
+      avoidPreferences: ['heavy'],
       queryExpansion: {
         primaryKeyword: '食欲ない',
         providerQueries: {
@@ -37,6 +38,7 @@ test('keeps semantic prompts local-only for eat-out navigation', () => {
   assert.equal(params.get('keyword'), null);
   assert.equal(params.get('providerKeywords'), null);
   assert.equal(params.get('softPreferences'), null);
+  assert.equal(params.get('avoidPreferences'), null);
   assert.equal(params.get('category'), null);
   assert.equal(params.get('openNow'), null);
   assert.equal(params.get('radiusM'), null);
